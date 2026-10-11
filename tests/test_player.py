@@ -197,7 +197,22 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.request('/api/state', raw=raw)[0], 400)
 
     def test_body_limit(self):
-        self.assertEqual(self.request('/api/state', raw='x' * (128 * 1024 + 1))[0], 413)
+        # Reject the declared size before reading any body. Uploading a body the
+        # server deliberately leaves unread can race Windows' TCP reset on close.
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=5)
+        try:
+            connection.putrequest('POST', '/api/state', skip_host=True)
+            for name, value in {'Host': self.host, 'Connection': 'close',
+                                'Content-Type': 'application/json',
+                                'X-Talk-CSRF': self.app.csrf,
+                                'Content-Length': str(128 * 1024 + 1)}.items():
+                connection.putheader(name, value)
+            connection.endheaders()
+            response = connection.getresponse()
+            self.assertEqual(response.status, 413)
+            self.assertEqual(json.loads(response.read()), {'code': 'BODY_LIMIT'})
+        finally:
+            connection.close()
 
     def test_favorite_api(self):
         status, _, body = self.request('/api/favorite', {'key': TRACK['mid'], 'enabled': True})
