@@ -1,0 +1,27 @@
+# Resolved on 2026-10-09, CPython 3.12 Windows amd64; wheels only.
+# Generated from artifacts/headless-dependency-plan.json; fixed source pin checked separately.
+qqmusic-api-python==0.8.2 --hash=sha256:8b7e6804c56f2997131dc52ae6c8ee307e29b3afd93dfcc6ca003571be30e90d
+anyio==4.15.1 --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101
+cryptography==50.0.2 --hash=sha256:7afa5a6602a9f29af1f3a2965f831bae7c9d5d597b7cbb716d41ab3b7d89879c
+jsonpath-ng==1.9.1 --hash=sha256:a820147664d759ef233357592d86dba7dc345a53c65aea19791f8c0372635627
+niquests==3.21.2 --hash=sha256:73e52614a712ee2f4d410bdd29789ca6a4ed031f8961410156e395d42b091208
+orjson==3.13.0 --hash=sha256:b571236d8393edcd3236e07423f762bfcf571f852aad667a3bce9e7b755e0790
+paho-mqtt==2.1.0 --hash=sha256:6db9ba9b34ed5bc6b6e3812718c7e06e2fd7444540df2455d2c51bd58808feee
+pydantic==2.14.0 --hash=sha256:15fab1bea6f1dc5003b54fc2ecab230c1fd1dbade2acd4addc52d81e32416d4b
+pydantic_core==2.50.0 --hash=sha256:1541c334af5d42cb9eb03862a9b4d2cfbfc670fd05172ec51f3ce02d704550f1
+typing_extensions==4.16.0 --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+annotated-types==0.8.0 --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
+cffi==2.1.1 --hash=sha256:f53e442b08449d42821fa4a4fba000095af9f62742a500f978a9f557ec44339a
+charset-normalizer==3.5.2 --hash=sha256:780fbe7cab297b81dad9fb8dc5eb003c0468ffb0d9e5f65068c53a34661a96bc
+idna==3.20 --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
+typing-inspection==0.4.4 --hash=sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147
+urllib3-future==2.25.902 --hash=sha256:88e6f3c19f553931e78f84f011a34220f827c971e6cf06b3a075eaa788c2bf7d
+wassima==2.1.4 --hash=sha256:26022272d4618aada0e26df2e79dbc0e034be8be9d6d5396512690ffc6a94e7b
+brotli==1.2.0 --hash=sha256:b35c13ce241abdd44cb8ca70683f20c0c079728a36a996297adb5334adfc1c44
+h11==0.16.0 --hash=sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86
+jh2==5.0.15 --hash=sha256:5a32cd4bb2fc7f03315b3415b0d1f37b204f4334b352e68c25e3e31f0750b7cc
+qh3==2.0.4 --hash=sha256:53f7180a74db23f5469a610a6bcdf2b29a4ed45e067a40276c83b1cead3816df
+zstandard==0.25.0 --hash=sha256:ffef5a74088f1e09947aecf91011136665152e0b4b359c42be3373897fb39b01
+pycparser==3.1 --hash=sha256:f09d358c840bd147b79e55f2bc494f18ea869dc897f5852a8f5766b74f787882
+# Added ordinary-media decoder, reviewed against PyPI metadata.
+miniaudio==1.71 --hash=sha256:f4a44b70b66628b0c307e40ae0ae857695978cae18462179b806d8edc807d416

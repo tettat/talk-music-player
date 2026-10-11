@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "python": ".venv/Scripts/python.exe",
+  "data_dir": ".private",
+  "qq_session_dir": ".private/qq",
+  "analysis_python": ".private/runtime-analysis/Scripts/python.exe",
+  "basic_pitch_model": ".private/models/basic_pitch/nmp.onnx",
+  "port": 43180,
+  "ttl_seconds": 86400
+}

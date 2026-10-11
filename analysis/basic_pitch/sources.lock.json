@@ -1,0 +1,16 @@
+{
+  "wheelVersion": "0.4.0",
+  "wheelSha256": "738adb503aae7fdfc7d1e1511aa0ce35052315f260a19531ef4c356708425db0",
+  "model": {
+    "sha256": "2c3c1d144bfa61ad236e92e169c13535c880469a12a047d4e73451f2c059a0ec",
+    "bytes": 230444
+  },
+  "source": "https://github.com/spotify/basic-pitch/tree/v0.4.0",
+  "sources": {
+    "commandline_printing.py": "bfdff2ed9f27ed2e609f0c0b2075defd09e9ce00fa2278999698de8a370df175",
+    "__init__.py": "808fdb533896d7682441a15008a002884333e5a0344637d61f3424764229be4a",
+    "inference.py": "b2dd343a318b85ee91c6d660eae2f48d7e39a8678d82575ab606c1c3617a6269",
+    "constants.py": "3374330dbf374cc4ba3d76eba6aad06e089a40252c4c68b3bf93510bd7b37214",
+    "note_creation.py": "9c813509acf57ed9b902d2b9fcd9f8118b2c5ffe568a06df9cfa60f5c5ee2572"
+  }
+}

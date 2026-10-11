@@ -1,0 +1,41 @@
+talk music-player integrates extracted QQ helpers and qqmusic-api-python.
+
+QQMusicApi upstream: https://github.com/L-1124/QQMusicApi
+Version: qqmusic-api-python 0.8.2
+Fixed upstream commit: 84cfb2fc5b68d8e0c3c59c6c7fab3d0f6211336a
+License: GPL-3.0-or-later, as declared by the fixed SDK project.
+The unmodified license is retained as COPYING-QQMusicApi.
+
+Pinned upstream Python-source hashes: src/providers/qq/sources.lock.json.
+Hash-locked Windows Python 3.12 dependencies: requirements/qq-windows-py312.lock.
+Locally authored media/DPAPI/cookie helpers are retained in src/providers/qq/.
+The upstream SDK itself is installed by setup, not copied from a user's venv.
+
+New player integration source is provided under GPL-3.0-or-later.
+Kimi delivered the original design and the listening/lyrics/analysis incremental
+HTML/CSS fragments; integration changes are local.
+Album artwork and music remain their respective rights holders' content and are
+not included in the distributable source. Private authorized caches are ignored.
+
+Basic Pitch (Spotify): https://github.com/spotify/basic-pitch/tree/v0.4.0
+License: Apache-2.0. Full upstream license: analysis/basic_pitch/LICENSE-Spotify.
+Five unmodified inference Python files are retained under
+analysis/basic_pitch/vendor/basic_pitch/. Model is the 230444-byte ONNX artifact
+from the 0.4.0 wheel, kept in .private/models/basic_pitch/ (not public HTTP).
+SHA-256 for the wheel, each retained source and model: sources.lock.json.
+The local probe.py is separate integration, not a modification of those files.
+This uses an ONNX-only subset, not an installed full basic-pitch distribution.
+
+ONNX Runtime, librosa, NumPy, SciPy, soundfile, pretty_midi and supporting packages
+are installed only in .private/runtime-analysis. Exact versions are in
+analysis/basic_pitch/requirements.lock.txt; their original license notices remain
+in the installed distributions. No cloud inference or protected audio decryption.
+Model output is an estimate; rights in music and lyrics are not granted by a
+model's software license. Private audio and lyrics are not bundled as source.
+
+Electron: https://github.com/electron/electron
+Pinned npm version and transitive integrities: package-lock.json.
+Electron is MIT; its distribution includes Chromium/Node and their license notices
+in node_modules/electron/dist/LICENSE and LICENSES.chromium.html. These runtime
+dependencies are installed by npm ci, not committed or stripped of notices.
+Desktop security follows https://www.electronjs.org/docs/latest/tutorial/security

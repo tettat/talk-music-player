@@ -1,0 +1,78 @@
+talk: portable source, local ownership
+====================================
+
+Implemented
+-----------
+web/                   Existing player, statistics, lyrics and analysis UI.
+desktop/               Electron shell + owned Python backend + navigation policy.
+src/settings.py        Explicit git-ignored local configuration, no device paths.
+src/server.py          Loopback HTTP, Host/Origin/CSRF checks, bounded async work.
+src/process_lifetime.py Windows kill-on-close job for desktop backend descendants.
+src/bridge.py          QQ provider; metadata, account-authenticated search/source/lyrics.
+src/providers/qq/      Pinned SDK guard, DPAPI, cookie compatibility, verified MP3.
+src/providers/         Provider contract/registry; only QQ implemented/advertised.
+src/library.py         SQLite personal favorites/playlists/queue; not platform writes.
+src/listen_store.py    Listening semantics independent of provider favorites.
+src/analysis_runner.py Isolated, bounded model subprocess, config-selected runtime.
+analysis/basic_pitch/  Reviewed ONNX-only inference, sources/model checksum manifest.
+requirements/          Reproducible QQ Windows CPython 3.12 wheel hashes.
+
+Desktop lifecycle
+-----------------
+One Electron main instance -> one owned Python stdin pipe -> random localhost port.
+Readiness is received only through the child's pipe, then checked by health identity.
+Last window closes -> stdin shutdown -> server exit -> Windows job kills descendants.
+If Electron crashes, pipe EOF still shuts down the backend. If backend crashes, the
+OS closes its private job handle and terminates remaining model children.
+No Node integration/preload bridge in renderer. Context isolation, sandbox and web
+security stay enabled. No popup, webview, arbitrary permission or remote navigation.
+Music/lyrics/cover network access happens in the bounded provider backend only.
+
+The legacy browser launcher remains a separate compatibility mode with TTL. The
+desktop must never kill an unrelated listener or steal another app's process.
+
+Local state / portability
+-------------------------
+Code paths use project-root-relative defaults, never a fixed username/drive.
+config.local.json selects a user's optional external runtime and existing protected
+authorization directory. Relative paths resolve against checkout even from other cwd.
+No secret is stored in example config. Credentials, databases, audio, model binaries,
+logs, experiments and screenshots are excluded from git.
+DPAPI credentials intentionally cannot travel to another user/device: reauthorize there.
+Current platform support: Windows x64, Python 3.12, Node 22+. Other OS credential
+backends and packaged relocatable Python runtimes are future work, not guaranteed.
+
+More sources: necessary next steps, NOT shipped yet
+--------------------------------------------------
+1. Introduce canonical source-qualified identity (e.g. qq:<mid>, netease:<id>) while
+   keeping a reversible migration/alias for existing QQ MID keys. All favorites,
+   playlist refs, queue/current state, listening history and insight caches migrate
+   transactionally, tested against a backup of a fixture DB, not the user's live DB.
+2. Separate public metadata from provider playback grants and internal identifiers;
+   never expose signed URLs/tokens or invent mappings between different recordings.
+3. Implement NetEase provider independently: own authorization expiry/refresh, exact
+   recording identity, search pagination, authorized source availability and lyrics.
+   Do not imply QQ membership transfers to NetEase or fall back to a cover/preview.
+4. Aggregate provider searches with partial-failure semantics and source badges.
+   A mixed queue resolves each row through its own provider, independently of UI view.
+5. Distinguish provider capabilities. Unsupported operations fail clearly, never
+   silently route a non-QQ key to QQ. ProviderRegistry.get already rejects unknown IDs.
+6. Design the small source/login UI increment with Kimi if/when UI changes are needed;
+   keep the existing minimalist player, do not add explanatory paragraphs to the page.
+7. Cross-device sync separately: derived personal records first, protected credentials
+   and copyrighted audio do not silently become synced assets.
+
+Before a release installer
+--------------------------
+Build a relocatable Python distribution rather than copying .venv (venvs contain
+machine references). Bundle pinned wheels and preserve all license notices. Keep
+user state outside app resources, add upgrade/rollback/backup tests, code signing
+and opt-in update policy. Do not describe the current source shell as an installer.
+
+Transcription research
+----------------------
+Production Basic Pitch integration is included. The YourMT3/ROSVOT/Transkun/Beat This
+experiments and raw licensed-song outputs remain local research, not current player
+features or audited distributable model packages. Their consolidation and score
+previews are in the existing Feishu research document. Promotion requires per-model
+runtime manifests, weight-license review, reproducible setup and separate UI/job work.

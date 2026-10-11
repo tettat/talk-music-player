@@ -1,0 +1,30 @@
+name: Player contracts
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Audit checked-out source
+        run: python scripts/audit_source.py
+      - name: Reproduce fixed QQ runtime (no account)
+        run: python scripts/setup_runtime.py
+      - name: Lockfile and offline contracts
+        run: |
+          npm ci --ignore-scripts --no-fund
+          powershell -NoProfile -File scripts/test.ps1
+      - name: Real backend lifetime in fresh temporary data
+        run: npm run verify:desktop

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="talk-csrf" content="__CSRF__">
+<title>talk</title>
+<link rel="icon" href="/assets/brand.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+
+<svg class="svg-defs" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-play" viewBox="0 0 24 24">
+      <path d="M8 5.4v13.2a.6.6 0 0 0 .92.5l10.4-6.6a.6.6 0 0 0 0-1L8.92 4.9a.6.6 0 0 0-.92.5Z" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24">
+      <rect x="6.5" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none"/>
+      <rect x="14.1" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-next" viewBox="0 0 24 24">
+      <path d="M6.5 6.1v11.8a.5.5 0 0 0 .78.42l8.1-5.9a.5.5 0 0 0 0-.84l-8.1-5.9a.5.5 0 0 0-.78.42Z" fill="currentColor" stroke="none"/>
+      <path d="M17 6v12"/>
+    </symbol>
+    <symbol id="i-previous" viewBox="0 0 24 24">
+      <path d="M17.5 6.1v11.8a.5.5 0 0 1-.78.42l-8.1-5.9a.5.5 0 0 1 0-.84l8.1-5.9a.5.5 0 0 1 .78.42Z" fill="currentColor" stroke="none"/>
+      <path d="M7 6v12"/>
+    </symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24">
+      <path d="M12 20.2 5.4 13.9a4.42 4.42 0 0 1 0-6.4 4.7 4.7 0 0 1 6.6 0l.0.0a4.7 4.7 0 0 1 6.6 0 4.42 4.42 0 0 1 0 6.4Z"/>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24">
+      <circle cx="10.8" cy="10.8" r="6.3"/>
+      <path d="m15.6 15.6 4.9 4.9"/>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24">
+      <path d="M12 5.5v13M5.5 12h13"/>
+    </symbol>
+    <symbol id="i-more" viewBox="0 0 24 24">
+      <circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>
+      <circle cx="18.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-queue" viewBox="0 0 24 24">
+      <path d="M4 6.5h16M4 11.5h9.5M4 16.5h9.5"/>
+      <path d="M17.2 13.2v7l5-3.5Z" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 24 24">
+      <path d="m6 6 12 12M18 6 6 18"/>
+    </symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24">
+      <path d="M4 9.5v5h3.4l4.6 3.8a.5.5 0 0 0 .8-.4V6.1a.5.5 0 0 0-.8-.4L7.4 9.5Z"/>
+      <path d="M15.8 9a4.6 4.6 0 0 1 0 6M18.3 6.6a8 8 0 0 1 0 10.8"/>
+    </symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24">
+      <path d="M4 9.5a3.5 3.5 0 0 1 3.5-3.5H19M19 6l-2.6-2.6M19 6l-2.6 2.6"/>
+      <path d="M20 14.5a3.5 3.5 0 0 1-3.5 3.5H5M5 18l2.6 2.6M5 18l2.6-2.6"/>
+    </symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24">
+      <path d="M3.5 6.5h3.2c4.6 0 6 11 10.6 11h3.2M20.5 17.5 18 15M20.5 17.5 18 20"/>
+      <path d="M3.5 17.5h3.2c1.6 0 2.8-1.5 3.9-3M13.4 9.5c1.1-1.5 2.3-3 3.9-3h3.2M20.5 6.5 18 4M20.5 6.5 18 9"/>
+    </symbol>
+    <symbol id="i-music" viewBox="0 0 24 24">
+      <path d="M9.5 17.8V6.4a1 1 0 0 1 .76-.97l8.5-2.3a1 1 0 0 1 1.24.97v11.2"/>
+      <circle cx="6.8" cy="17.8" r="2.7"/>
+      <circle cx="17.3" cy="15.3" r="2.7"/>
+    </symbol>
+    <symbol id="i-user" viewBox="0 0 24 24">
+      <circle cx="12" cy="8" r="3.6"/>
+      <path d="M5 19.6a7.2 7.2 0 0 1 14 0"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24">
+      <path d="m4.5 12.5 5 5 10-11"/>
+    </symbol>
+    <symbol id="i-loader" viewBox="0 0 24 24">
+      <path d="M12 3.5a8.5 8.5 0 1 1-8.4 7.2"/>
+    </symbol>
+  </defs>
+</svg>
+
+<svg class="svg-defs" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-chart" viewBox="0 0 24 24">
+      <path d="M4 19.5h16"/>
+      <path d="M7.5 16.5v-5M12 16.5V6.5M16.5 16.5v-8"/>
+    </symbol>
+    <symbol id="i-detail" viewBox="0 0 24 24">
+      <path d="M4.5 6.5h15M4.5 12h15M4.5 17.5h8.5"/>
+    </symbol>
+    <symbol id="i-export" viewBox="0 0 24 24">
+      <path d="M12 4v10.5M12 14.5 8.5 11M12 14.5l3.5-3.5"/>
+      <path d="M5 15.5v3A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-3"/>
+    </symbol>
+    <symbol id="i-follow" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="6.2"/>
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>
+      <path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="app" id="app">
+
+  <aside class="rail" aria-label="主导航">
+    <a class="brand" href="#" aria-label="talk">
+      <img src="/assets/brand.svg" alt="" width="26" height="26">
+      <span class="brand-name">talk</span>
+    </a>
+
+    <nav class="nav" aria-label="视图">
+      <button type="button" class="nav-btn is-active" data-view="library" aria-label="音乐库" title="音乐库">
+        <svg class="icon"><use href="#i-music"/></svg>
+        <span class="nav-label">音乐库</span>
+      </button>
+      <button type="button" class="nav-btn" data-view="favorites" aria-label="收藏" title="收藏">
+        <svg class="icon"><use href="#i-heart"/></svg>
+        <span class="nav-label">收藏</span>
+      </button>
+<button type="button" class="nav-btn" data-view="insights" aria-label="听歌" title="听歌">
+  <svg class="icon"><use href="#i-chart"/></svg>
+  <span class="nav-label">听歌</span>
+</button>
+    </nav>
+
+    <div class="rail-section">
+      <div class="rail-section-head">
+        <span class="rail-section-title">播放列表</span>
+        <button type="button" class="icon-btn" id="create-playlist" aria-label="新建列表" title="新建列表">
+          <svg class="icon"><use href="#i-plus"/></svg>
+        </button>
+      </div>
+      <ul class="playlist-list" id="playlist-list"></ul>
+    </div>
+
+    <div class="rail-foot">
+      <button type="button" class="icon-btn" id="auth-button" aria-label="连接账号" title="连接账号">
+        <svg class="icon"><use href="#i-user"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <form class="search" id="search-form" role="search">
+        <svg class="icon search-icon"><use href="#i-search"/></svg>
+        <input id="search-input" type="search" placeholder="搜索歌曲、歌手" autocomplete="off" spellcheck="false" aria-label="搜索">
+      </form>
+    </header>
+
+    <main class="content" id="content">
+      <section class="hero" id="hero" hidden>
+        <div class="hero-cover-wrap">
+          <img class="hero-cover" id="hero-cover" src="/assets/cover-default.svg" alt="封面" width="176" height="176">
+        </div>
+        <div class="hero-meta">
+          <h1 class="hero-title" id="hero-title"></h1>
+          <p class="hero-artist" id="hero-artist"></p>
+          <div class="hero-actions">
+            <button type="button" class="btn-accent" id="hero-play" aria-label="播放" title="播放">
+              <svg class="icon"><use href="#i-play"/></svg>
+            </button>
+            <button type="button" class="icon-btn icon-btn-lg" id="hero-like" aria-label="收藏" title="收藏">
+              <svg class="icon"><use href="#i-heart"/></svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div class="list-head">
+        <h2 class="page-title" id="page-title">音乐库</h2>
+        <span class="track-count" id="track-count"></span>
+      </div>
+
+      <ol class="track-list" id="track-list"></ol>
+
+      <div class="empty-state" id="empty-state">
+        <svg class="icon icon-xl"><use href="#i-music"/></svg>
+        <span class="empty-label">暂无</span>
+      </div>
+<section class="insights-view" id="insights-view" aria-labelledby="insights-title" hidden>
+  <div class="insights-head">
+    <h2 class="page-title" id="insights-title">听歌</h2>
+    <div class="stats-range" id="stats-range" role="group" aria-label="范围">
+      <button type="button" class="range-btn" data-days="7" aria-pressed="false">7天</button>
+      <button type="button" class="range-btn" data-days="30" aria-pressed="true">30天</button>
+      <button type="button" class="range-btn" data-days="0" aria-pressed="false">全部</button>
+    </div>
+  </div>
+
+  <div class="stats-strip" id="stats-strip">
+    <div class="stat">
+      <span class="stat-num" id="stat-time"></span>
+      <span class="stat-label">时长</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num" id="stat-plays"></span>
+      <span class="stat-label">次数</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num" id="stat-songs"></span>
+      <span class="stat-label">歌曲</span>
+    </div>
+  </div>
+
+  <div class="stats-chart" id="stats-chart" role="img" aria-label="每日时长"></div>
+
+  <div class="insights-cols">
+    <section class="top-block" aria-labelledby="top-tracks-title">
+      <h3 class="block-title" id="top-tracks-title">常听歌曲</h3>
+      <ol class="top-list" id="stats-top-tracks"></ol>
+    </section>
+    <section class="top-block" aria-labelledby="top-artists-title">
+      <h3 class="block-title" id="top-artists-title">常听歌手</h3>
+      <ol class="top-list" id="stats-top-artists"></ol>
+    </section>
+  </div>
+
+  <section class="history-block" aria-labelledby="history-title">
+    <h3 class="block-title" id="history-title">最近播放</h3>
+    <ol class="history-list" id="history-list"></ol>
+    <button type="button" class="btn-ghost load-more" id="history-more" hidden>更多</button>
+  </section>
+</section>
+    </main>
+  </div>
+
+  <aside class="queue-panel" id="queue-panel" aria-label="播放队列" hidden>
+    <div class="queue-head">
+      <h2 class="queue-title">队列</h2>
+      <button type="button" class="text-btn" id="queue-clear">清空</button>
+      <button type="button" class="icon-btn" id="queue-close" aria-label="收起队列" title="收起队列">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <ol class="queue-list" id="queue-list"></ol>
+  </aside>
+
+<aside class="detail-panel" id="detail-panel" aria-label="详情" hidden>
+  <div class="detail-head">
+    <img class="detail-cover" id="detail-cover" src="/assets/cover-default.svg" alt="封面" width="56" height="56">
+    <div class="detail-meta">
+      <span class="detail-title" id="detail-title"></span>
+      <span class="detail-artist" id="detail-artist"></span>
+    </div>
+    <button type="button" class="icon-btn" id="detail-close" aria-label="关闭" title="关闭">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+  </div>
+
+  <div class="detail-tabs" role="tablist" aria-label="详情">
+    <button type="button" class="detail-tab is-active" id="tab-lyrics" data-detail="lyrics"
+      role="tab" aria-selected="true" aria-controls="lyrics-view">歌词</button>
+    <button type="button" class="detail-tab" id="tab-analysis" data-detail="analysis"
+      role="tab" aria-selected="false" aria-controls="analysis-view">分析</button>
+  </div>
+
+  <div class="detail-body">
+    <section class="lyrics-view" id="lyrics-view" role="tabpanel" aria-labelledby="tab-lyrics">
+      <div class="lyrics-bar">
+        <span class="lyrics-status" id="lyrics-status" role="status"></span>
+        <div class="lyrics-actions">
+          <button type="button" class="icon-btn" id="lyrics-follow" aria-label="跟随" title="跟随" aria-pressed="true">
+            <svg class="icon"><use href="#i-follow"/></svg>
+          </button>
+          <button type="button" class="icon-btn" id="lyrics-export" aria-label="导出" title="导出 LRC">
+            <svg class="icon"><use href="#i-export"/></svg>
+          </button>
+        </div>
+      </div>
+      <ol class="lyrics-list" id="lyrics-list" aria-label="歌词"></ol>
+    </section>
+
+    <section class="analysis-view" id="analysis-view" role="tabpanel" aria-labelledby="tab-analysis" hidden>
+      <div class="analysis-bar">
+        <span class="analysis-status" id="analysis-status" role="status"></span>
+        <span class="analysis-model" id="analysis-model" hidden></span>
+        <button type="button" class="btn-accent btn-text btn-run" id="analysis-run">分析</button>
+      </div>
+      <div class="analysis-result" id="analysis-result"></div>
+    </section>
+  </div>
+</aside>
+
+  <footer class="player" aria-label="播放器">
+    <div class="player-track">
+      <img class="player-cover" id="player-cover" src="/assets/cover-default.svg" alt="封面" width="52" height="52">
+      <div class="player-info">
+        <span class="player-title" id="player-title"></span>
+        <span class="player-artist" id="player-artist"></span>
+      </div>
+      <button type="button" class="icon-btn" id="player-like" aria-label="收藏" title="收藏">
+        <svg class="icon"><use href="#i-heart"/></svg>
+      </button>
+    </div>
+
+    <div class="player-center">
+      <div class="player-controls">
+        <button type="button" class="icon-btn" id="play-mode" aria-label="播放模式" title="播放模式">
+          <svg class="icon"><use href="#i-repeat"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="previous" aria-label="上一首" title="上一首">
+          <svg class="icon"><use href="#i-previous"/></svg>
+        </button>
+        <button type="button" class="btn-accent btn-play" id="play-toggle" aria-label="播放" title="播放">
+          <svg class="icon"><use href="#i-play"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="next" aria-label="下一首" title="下一首">
+          <svg class="icon"><use href="#i-next"/></svg>
+        </button>
+      </div>
+      <div class="player-seek">
+        <span class="time" id="elapsed">0:00</span>
+        <input type="range" class="range" id="seek" min="0" max="100" step="0.1" value="0" aria-label="进度">
+        <span class="time" id="duration">0:00</span>
+      </div>
+    </div>
+
+    <div class="player-right">
+      <svg class="icon icon-dim"><use href="#i-volume"/></svg>
+      <input type="range" class="range range-sm" id="volume" min="0" max="1" step="0.01" value="0.8" aria-label="音量">
+<button type="button" class="icon-btn" id="detail-toggle" aria-label="详情" title="详情" aria-expanded="false">
+  <svg class="icon"><use href="#i-detail"/></svg>
+</button>
+      <button type="button" class="icon-btn" id="queue-toggle" aria-label="队列" title="队列">
+        <svg class="icon"><use href="#i-queue"/></svg>
+      </button>
+    </div>
+  </footer>
+
+</div>
+
+<dialog class="dialog" id="auth-dialog" aria-labelledby="auth-title">
+  <div class="dialog-head">
+    <h2 class="dialog-title" id="auth-title">QQ 音乐</h2>
+    <button type="button" class="icon-btn" id="auth-close" aria-label="关闭" title="关闭">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+  </div>
+  <div class="auth-tabs" role="group" aria-label="登录方式">
+    <button type="button" class="chip is-active" id="auth-qq">QQ 扫码</button>
+    <button type="button" class="chip" id="auth-wx" hidden>微信</button>
+    <button type="button" class="chip" id="auth-mobile" hidden>手机</button>
+  </div>
+  <div class="auth-qr-wrap">
+    <img id="auth-qr" alt="授权二维码" width="200" height="200">
+  </div>
+  <p class="auth-status" id="auth-status"></p>
+</dialog>
+
+<dialog class="dialog" id="playlist-dialog" aria-labelledby="playlist-dialog-title">
+  <div class="dialog-head">
+    <h2 class="dialog-title" id="playlist-dialog-title">新建列表</h2>
+  </div>
+  <form id="playlist-form">
+    <input id="playlist-name" type="text" placeholder="列表名称" aria-label="列表名称" maxlength="40" autocomplete="off" required>
+    <div class="dialog-actions">
+      <button type="button" class="btn-ghost" id="playlist-cancel">取消</button>
+      <button type="submit" class="btn-accent btn-text" id="playlist-save">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dialog" id="add-dialog" aria-labelledby="add-dialog-title">
+  <div class="dialog-head">
+    <h2 class="dialog-title" id="add-dialog-title">加至列表</h2>
+    <button type="button" class="icon-btn" id="add-close" aria-label="关闭" title="关闭">
+      <svg class="icon"><use href="#i-close"/></svg>
+    </button>
+  </div>
+  <ul class="add-list" id="add-list"></ul>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<audio id="audio" preload="metadata"></audio>
+
+</body>
+</html>
