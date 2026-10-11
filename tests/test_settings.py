@@ -16,7 +16,9 @@ from server import Player
 class SettingsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='talk settings ')
-        self.root = Path(self.temp.name)
+        # Hosted Windows may expose TEMP through an 8.3 alias. Settings deliberately
+        # canonicalize real paths; compare the same filesystem identity, not spelling.
+        self.root = Path(self.temp.name).resolve()
 
     def tearDown(self):
         self.temp.cleanup()
