@@ -19,7 +19,7 @@ npm start
 
 **Electron：**打开窗口即启动专属后台；关掉最后一个窗口即退出，后台和分析子进程随之结束。不驻托盘、不注册服务、不设置开机启动、不启动 QQ 音乐主程序。后台使用随机回环端口，不与网页助手抢端口；不需要手动启动服务，也没有网页模式的 24 小时到期。
 
-创建本机快捷方式：`powershell -NoProfile -File .\scripts\create-shortcut.ps1`。完成后双击本目录的 **talk 播放器.lnk**。也可运行 `scripts/open-desktop.ps1`；快捷入口不依赖启动一个 Node 控制台。
+创建本机快捷方式：`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\create-shortcut.ps1`。完成后双击本目录的 **talk 播放器.lnk**。也可运行 `scripts/open-desktop.ps1`；快捷入口不依赖启动一个 Node 控制台，不修改系统执行策略。
 
 仍保留网页兼容入口：`scripts/open-player.ps1`，默认 <http://127.0.0.1:43180/>，网页助手仍有 24 小时 TTL。网页助手是独立的旧入口，不会因为 Electron 退出而被误杀。不要同时在两种入口播放，以免各自累计收听。
 

@@ -18,7 +18,7 @@ if(Test-Path -LiteralPath $shortcutPath){
 }
 $shortcut=$shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath=$target
-$shortcut.Arguments='-NoProfile -WindowStyle Hidden -File "'+$openScript+'"'
+$shortcut.Arguments='-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+$openScript+'"'
 $shortcut.WorkingDirectory=$root
 $shortcut.WindowStyle=7
 $shortcut.Description='talk desktop music player'

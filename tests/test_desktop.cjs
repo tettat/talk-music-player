@@ -7,6 +7,7 @@ const path = require('node:path');
 const {loadConfig} = require('../desktop/config.cjs');
 const {validateReady} = require('../desktop/backend.cjs');
 const {allowedURL, windowPreferences} = require('../desktop/security.cjs');
+const {desktopLaunchOptions} = require('../desktop/launch.cjs');
 
 function fixture(run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'talk desktop '));
@@ -56,4 +57,13 @@ test('navigation permits same origin only, not credentials or remote schemes', (
                      'http://127.0.0.1:43304/', 'http://user:pass@127.0.0.1:43303/']) {
     assert.equal(allowedURL(url, origin), false);
   }
+});
+test('interactive Electron launch is visible and never inherits run-as-Node', () => {
+  const source = {ELECTRON_RUN_AS_NODE: '1', TALK_DATA_DIR: 'qa'};
+  const options = desktopLaunchOptions(source);
+  assert.equal(options.windowsHide, false);
+  assert.equal(options.shell, false);
+  assert.equal(options.env.ELECTRON_RUN_AS_NODE, undefined);
+  assert.equal(options.env.TALK_DATA_DIR, 'qa');
+  assert.equal(source.ELECTRON_RUN_AS_NODE, '1');
 });
