@@ -24,9 +24,19 @@ Readiness is received only through the child's pipe, then checked by health iden
 Last window closes -> stdin shutdown -> server exit -> Windows job kills descendants.
 If Electron crashes, pipe EOF still shuts down the backend. If backend crashes, the
 OS closes its private job handle and terminates remaining model children.
-No Node integration/preload bridge in renderer. Context isolation, sandbox and web
-security stay enabled. No popup, webview, arbitrary permission or remote navigation.
+No Node integration in renderer. The sandboxed preload exposes only fixed window
+actions and sanitized window state, never generic IPC, filesystem, shell or accounts.
+Main-process handlers verify the owning webContents, main frame, URL and origin.
+Context isolation, sandbox and web security stay enabled. No popup, webview,
+arbitrary permission or remote navigation.
 Music/lyrics/cover network access happens in the bounded provider backend only.
+
+The frameless window keeps three custom controls in the existing search row. Global
+viewport positioning and drawer head clearance prevent panels covering the controls.
+When an HTML modal opens, the one control group is reparented into that top-layer
+dialog: z-index alone cannot escape the modal's inert background. No desktop bridge
+means hidden controls and unchanged browser/mobile layout. Maximize/restore follows
+native window events, including OS-driven changes, rather than a guessed UI flag.
 
 The legacy browser launcher remains a separate compatibility mode with TTL. The
 desktop must never kill an unrelated listener or steal another app's process.

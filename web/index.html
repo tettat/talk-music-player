@@ -50,6 +50,16 @@
     <symbol id="i-close" viewBox="0 0 24 24">
       <path d="m6 6 12 12M18 6 6 18"/>
     </symbol>
+    <symbol id="i-window-minimize" viewBox="0 0 24 24">
+      <path d="M5 12h14"/>
+    </symbol>
+    <symbol id="i-window-maximize" viewBox="0 0 24 24">
+      <rect x="5.5" y="5.5" width="13" height="13" rx="1.5"/>
+    </symbol>
+    <symbol id="i-window-restore" viewBox="0 0 24 24">
+      <path d="M9.5 9.5V6.5A1.5 1.5 0 0 1 11 5h6.5A1.5 1.5 0 0 1 19 6.5V13a1.5 1.5 0 0 1-1.5 1.5h-3"/>
+      <rect x="5" y="9.5" width="9.5" height="9.5" rx="1.5"/>
+    </symbol>
     <symbol id="i-volume" viewBox="0 0 24 24">
       <path d="M4 9.5v5h3.4l4.6 3.8a.5.5 0 0 0 .8-.4V6.1a.5.5 0 0 0-.8-.4L7.4 9.5Z"/>
       <path d="M15.8 9a4.6 4.6 0 0 1 0 6M18.3 6.6a8 8 0 0 1 0 10.8"/>
@@ -147,6 +157,18 @@
         <svg class="icon search-icon"><use href="#i-search"/></svg>
         <input id="search-input" type="search" placeholder="搜索歌曲、歌手" autocomplete="off" spellcheck="false" aria-label="搜索">
       </form>
+      <div class="window-controls" id="window-controls" role="group" aria-label="窗口控制" hidden>
+        <button type="button" class="window-btn" id="window-minimize" aria-label="最小化" title="最小化">
+          <svg class="icon" aria-hidden="true"><use href="#i-window-minimize"/></svg>
+        </button>
+        <button type="button" class="window-btn" id="window-maximize" aria-label="最大化" title="最大化">
+          <svg class="icon window-maximize-icon" aria-hidden="true"><use href="#i-window-maximize"/></svg>
+          <svg class="icon window-restore-icon" aria-hidden="true"><use href="#i-window-restore"/></svg>
+        </button>
+        <button type="button" class="window-btn window-btn-close" id="window-close" aria-label="关闭窗口" title="关闭窗口">
+          <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
+        </button>
+      </div>
     </header>
 
     <main class="content" id="content">

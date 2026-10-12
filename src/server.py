@@ -470,6 +470,7 @@ class Handler(BaseHTTPRequestHandler):
             files = {'/': ('index.html', 'text/html; charset=utf-8'),
                      '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
                      '/listening.mjs': ('listening.mjs', 'text/javascript; charset=utf-8'),
+                     '/window-controls.mjs': ('window-controls.mjs', 'text/javascript; charset=utf-8'),
                      '/styles.css': ('styles.css', 'text/css; charset=utf-8'),
                      '/assets/brand.svg': ('assets/brand.svg', 'image/svg+xml'),
                      '/assets/cover-default.svg': ('assets/cover-default.svg', 'image/svg+xml')}

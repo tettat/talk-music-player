@@ -8,7 +8,7 @@ $python=$config.python
 if($LASTEXITCODE -ne 0){throw 'PLAYER_CONTRACTS_FAILED'}
 $web='web'
 if($Preview){$web='web-next'}
-foreach($file in @('app.js','listening.mjs')){
+foreach($file in @('app.js','listening.mjs','window-controls.mjs')){
   & node --check (Join-Path $root ($web+'\'+$file))
   if($LASTEXITCODE -ne 0){throw ('PLAYER_JS_PARSE_FAILED: '+$file)}
 }

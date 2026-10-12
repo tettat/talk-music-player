@@ -1,4 +1,6 @@
 import {ListeningTracker} from '/listening.mjs';
+import {installWindowControls} from '/window-controls.mjs';
+installWindowControls();
 const $ = id => document.getElementById(id);
 const audio = $('audio');
 const csrf = document.querySelector('meta[name="talk-csrf"]').content;

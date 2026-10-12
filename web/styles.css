@@ -389,6 +389,66 @@ input:focus-visible {
   padding: 18px 28px 6px;
 }
 
+/* Electron chrome (Kimi): same search row, no extra title or explanatory copy. */
+.is-desktop .topbar {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+.is-desktop .topbar .search,
+.is-desktop .topbar button,
+.window-controls {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.window-controls {
+  position: fixed;
+  top: 25px;
+  right: 10px;
+  z-index: 85;
+  display: flex;
+  gap: 2px;
+}
+
+.window-controls::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto;
+  height: 18px;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+/* Fixed controls inside a modal must not inherit an animated containing block. */
+.is-desktop .dialog { overflow: visible; }
+.is-desktop .dialog[open] { animation: none; }
+
+.window-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 28px;
+  border-radius: var(--radius-s);
+  color: var(--text-3);
+  transition: color 0.18s var(--ease), background-color 0.18s var(--ease), transform 0.18s var(--ease);
+}
+
+.window-btn .icon { width: 14px; height: 14px; }
+.window-btn:hover { color: var(--text); background: rgba(240, 234, 220, 0.07); }
+.window-btn:active { transform: scale(0.92); }
+.window-btn-close:hover { color: #fff; background: var(--danger); }
+.window-restore-icon,
+.window-controls.is-maximized .window-maximize-icon { display: none; }
+.window-controls.is-maximized .window-restore-icon { display: block; }
+.is-window-blurred .window-btn:not(:hover):not(:focus-visible) { opacity: 0.65; }
+
+/* Drawers must not hide or share a hit target with the global window buttons. */
+.is-desktop .queue-head,
+.is-desktop .detail-head { padding-top: 66px; }
+
 .search {
   position: relative;
   width: min(480px, 100%);

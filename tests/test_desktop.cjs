@@ -4,10 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {EventEmitter} = require('node:events');
+const vm = require('node:vm');
 const {loadConfig} = require('../desktop/config.cjs');
 const {validateReady} = require('../desktop/backend.cjs');
 const {allowedURL, windowPreferences} = require('../desktop/security.cjs');
 const {desktopLaunchOptions} = require('../desktop/launch.cjs');
+const {WINDOW_COMMAND, WINDOW_STATE, bindWindowControls} = require('../desktop/window-controls.cjs');
 
 function fixture(run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'talk desktop '));
@@ -46,9 +49,205 @@ test('ready channel accepts only an owned loopback backend', () => {
     assert.throws(() => validateReady({...ready, ...change}), /BACKEND_READY_INVALID/);
   }
 });
-test('renderer is isolated with no Node bridge, webview or unsafe content', () => {
+test('renderer remains sandboxed with no Node, webview or unsafe content', () => {
   assert.deepEqual(windowPreferences(), {nodeIntegration: false, contextIsolation: true, sandbox: true,
     webSecurity: true, allowRunningInsecureContent: false, webviewTag: false});
+});
+
+function controlFixture() {
+  const window = new EventEmitter();
+  const contents = new EventEmitter();
+  const state = {maximized: false, minimized: false, focused: true};
+  const calls = [], sent = [], handlers = new Map();
+  let destroyed = false;
+  contents.mainFrame = {url: 'http://127.0.0.1:43303/', origin: 'http://127.0.0.1:43303'};
+  contents.isDestroyed = window.isDestroyed = () => destroyed;
+  contents.send = (...args) => sent.push(args);
+  window.webContents = contents;
+  for (const [method, key] of [['isMaximized', 'maximized'], ['isMinimized', 'minimized'], ['isFocused', 'focused']]) {
+    window[method] = () => state[key];
+  }
+  for (const [method, key, value, event] of [['minimize', 'minimized', true, 'minimize'],
+    ['maximize', 'maximized', true, 'maximize'], ['unmaximize', 'maximized', false, 'unmaximize']]) {
+    window[method] = () => {calls.push(method); state[key] = value; window.emit(event);};
+  }
+  window.close = () => {calls.push('close'); destroyed = true; window.emit('closed');};
+  const ipcMain = {handle: (channel, handler) => handlers.set(channel, handler),
+                   removeHandler: channel => handlers.delete(channel)};
+  const dispose = bindWindowControls(ipcMain, window, 'http://127.0.0.1:43303');
+  const event = {sender: contents, senderFrame: contents.mainFrame};
+  return {window, contents, state, calls, sent, handlers, dispose, event,
+    command: (command, sender = event) => handlers.get(WINDOW_COMMAND)(sender, command)};
+}
+
+test('window IPC accepts only the owning main frame, never remote frames or other contents', () => {
+  const f = controlFixture();
+  for (const event of [{...f.event, sender: {}}, {...f.event, senderFrame: {url: f.contents.mainFrame.url}},
+                        {...f.event, senderFrame: null}]) {
+    assert.throws(() => f.command('close', event), /WINDOW_CONTROL_DENIED/);
+  }
+  for (const url of ['https://evil.invalid/', 'http://127.0.0.1:43304/',
+                     'http://user:pass@127.0.0.1:43303/']) {
+    f.contents.mainFrame.url = url;
+    assert.throws(() => f.command('close'), /WINDOW_CONTROL_DENIED/);
+  }
+  f.contents.mainFrame.url = 'http://127.0.0.1:43303/';
+  f.contents.mainFrame.origin = 'null';
+  assert.throws(() => f.command('close'), /WINDOW_CONTROL_DENIED/);
+  assert.deepEqual(f.calls, []);
+  f.dispose();
+});
+
+test('window actions are a fixed allowlist and maximize toggles back to restore', () => {
+  const f = controlFixture();
+  for (const command of ['shell', 'readFile', 'quit', null, {}, ['close']]) {
+    assert.throws(() => f.command(command), /WINDOW_COMMAND_INVALID/);
+  }
+  assert.deepEqual(f.command('state'), {maximized: false, minimized: false, focused: true});
+  assert.equal(f.command('minimize').minimized, true);
+  assert.equal(f.command('toggle-maximize').maximized, true);
+  assert.equal(f.command('toggle-maximize').maximized, false);
+  assert.equal(f.command('close'), null);
+  assert.deepEqual(f.calls, ['minimize', 'maximize', 'unmaximize', 'close']);
+  assert.equal(f.handlers.size, 0);
+});
+
+test('OS window changes publish state and closed windows dispose IPC/listeners', () => {
+  const f = controlFixture();
+  f.window.maximize();
+  assert.deepEqual(f.sent[0], [WINDOW_STATE, {maximized: true, minimized: false, focused: true}]);
+  f.state.focused = false; f.window.emit('blur');
+  assert.equal(f.sent[1][1].focused, false);
+  f.window.close(); f.dispose(); f.dispose();
+  assert.equal(f.handlers.size, 0);
+  for (const event of ['maximize', 'unmaximize', 'minimize', 'restore', 'focus', 'blur', 'closed']) {
+    assert.equal(f.window.listenerCount(event), 0);
+  }
+});
+
+test('sandboxed preload exposes window-only methods, strips IPC events and supports unsubscribe', async () => {
+  let exposed;
+  const invoked = [], listeners = new Map();
+  const electron = {contextBridge: {exposeInMainWorld: (name, api) => {assert.equal(name, 'talkWindow'); exposed = api;}},
+    ipcRenderer: {invoke: async (...args) => {invoked.push(args);},
+                  on: (channel, listener) => listeners.set(channel, listener),
+                  removeListener: (channel, listener) => {assert.equal(listeners.get(channel), listener); listeners.delete(channel);}}};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../desktop/preload.cjs'), 'utf8'),
+    {require: name => {assert.equal(name, 'electron'); return electron;}});
+  assert.equal(Object.isFrozen(exposed), true);
+  assert.deepEqual(Object.keys(exposed).sort(), ['close', 'getState', 'minimize', 'onState', 'toggleMaximize']);
+  await exposed.minimize('untrusted'); await exposed.toggleMaximize(); await exposed.close(); await exposed.getState();
+  assert.deepEqual(invoked, ['minimize', 'toggle-maximize', 'close', 'state'].map(action => [WINDOW_COMMAND, action]));
+  assert.throws(() => exposed.onState(null), /WINDOW_CALLBACK_INVALID/);
+  const received = [];
+  const unsubscribe = exposed.onState((...args) => received.push(args));
+  listeners.get(WINDOW_STATE)({sender: 'never exposed'}, {maximized: true, minimized: false, focused: true, secret: 'synthetic'});
+  listeners.get(WINDOW_STATE)({}, {maximized: 'bad'});
+  assert.equal(received.length, 1);
+  assert.equal(received[0].length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(received[0][0])), {maximized: true, minimized: false, focused: true});
+  unsubscribe(); assert.equal(listeners.size, 0);
+});
+
+function rendererFixture() {
+  const classList = () => {
+    const classes = new Set();
+    return {add: (...values) => values.forEach(value => classes.add(value)),
+      remove: (...values) => values.forEach(value => classes.delete(value)), contains: value => classes.has(value),
+      toggle: (value, enabled) => enabled ? classes.add(value) : classes.delete(value)};
+  };
+  const elements = {};
+  for (const id of ['window-controls', 'window-minimize', 'window-maximize', 'window-close']) {
+    const events = new Map();
+    elements[id] = {hidden: true, disabled: false, classList: classList(), attributes: {},
+      setAttribute(name, value) {this.attributes[name] = value;},
+      addEventListener: (event, listener) => events.set(event, listener),
+      removeEventListener: (event, listener) => {assert.equal(events.get(event), listener); events.delete(event);},
+      click: () => events.get('click')(), events};
+  }
+  const doc = {documentElement: {classList: classList()}, getElementById: id => elements[id]};
+  return {doc, elements};
+}
+
+test('browser and mobile renderer never show desktop buttons or alter layout', async () => {
+  const {installWindowControls} = await import('../web/window-controls.mjs');
+  const {doc, elements} = rendererFixture();
+  const dispose = installWindowControls(undefined, doc);
+  assert.equal(elements['window-controls'].hidden, true);
+  assert.equal(doc.documentElement.classList.contains('is-desktop'), false);
+  dispose();
+});
+
+test('custom controls route exact actions and keep maximize label/state synchronized', async () => {
+  const {installWindowControls} = await import('../web/window-controls.mjs');
+  const {doc, elements} = rendererFixture();
+  const actions = []; let listener, removed = false;
+  const state = {maximized: false, minimized: false, focused: true};
+  const bridge = {getState: async () => ({...state}), onState: callback => {listener = callback; return () => {removed = true;};},
+    minimize: async () => {actions.push('minimize'); return {...state, minimized: true};},
+    toggleMaximize: async () => {actions.push('toggle-maximize'); state.maximized = !state.maximized; return {...state};},
+    close: async () => {actions.push('close'); return null;}};
+  const dispose = installWindowControls(bridge, doc);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(elements['window-controls'].hidden, false);
+  assert.equal(doc.documentElement.classList.contains('is-desktop'), true);
+  await elements['window-maximize'].click();
+  assert.equal(elements['window-maximize'].attributes['aria-label'], '还原');
+  assert.equal(elements['window-controls'].classList.contains('is-maximized'), true);
+  listener({...state, maximized: false, focused: false});
+  assert.equal(elements['window-maximize'].title, '最大化');
+  assert.equal(doc.documentElement.classList.contains('is-window-blurred'), true);
+  await elements['window-minimize'].click(); await elements['window-close'].click();
+  assert.deepEqual(actions, ['toggle-maximize', 'minimize', 'close']);
+  dispose();
+  assert.equal(removed, true);
+  assert.equal(elements['window-controls'].hidden, true);
+  assert.equal(elements['window-close'].events.size, 0);
+});
+
+test('failed window IPC does not leave a button disabled', async () => {
+  const {installWindowControls} = await import('../web/window-controls.mjs');
+  const {doc, elements} = rendererFixture();
+  const reject = () => Promise.reject(new Error('WINDOW_CONTROL_DENIED'));
+  const dispose = installWindowControls({getState: reject, onState: () => () => {},
+    minimize: reject, toggleMaximize: reject, close: reject}, doc);
+  await elements['window-minimize'].click();
+  assert.equal(elements['window-minimize'].disabled, false);
+  dispose();
+});
+
+test('window controls stay interactive above modal dialogs and return home on close', async () => {
+  const {keepControlsAboveDialogs} = await import('../web/window-controls.mjs');
+  // Explicit hosts make reparenting observable without browser/global dependencies.
+  const home = {}, first = {open: false}, second = {open: false};
+  for (const node of [home, first, second]) node.appendChild = child => {child.parentElement = node;};
+  const controls = {parentElement: home};
+  let notify, disconnected = false; const observed = [];
+  class Observer {
+    constructor(callback) {notify = callback;}
+    observe(target, options) {observed.push([target, options]);}
+    disconnect() {disconnected = true;}
+  }
+  const doc = {defaultView: {MutationObserver: Observer}, querySelectorAll: () => [first, second]};
+  const dispose = keepControlsAboveDialogs(controls, doc);
+  assert.equal(observed.length, 2);
+  assert.deepEqual(observed[0][1], {attributes: true, attributeFilter: ['open']});
+  second.open = true; notify([{target: second}]);
+  assert.equal(controls.parentElement, second);
+  first.open = true; notify([{target: first}]); // Most recently opened, not DOM order.
+  assert.equal(controls.parentElement, first);
+  first.open = false; notify([{target: first}]);
+  assert.equal(controls.parentElement, second);
+  second.open = false; notify([{target: second}]);
+  assert.equal(controls.parentElement, home);
+  first.open = true; notify([{target: first}]); dispose();
+  assert.equal(disconnected, true);
+  assert.equal(controls.parentElement, home);
+});
+
+test('desktop modal CSS overrides the open-dialog transform animation for fixed controls', () => {
+  const css = fs.readFileSync(path.join(__dirname, '../web/styles.css'), 'utf8');
+  assert.match(css, /\.is-desktop\s+\.dialog\[open\]\s*\{\s*animation:\s*none\s*;/);
 });
 test('navigation permits same origin only, not credentials or remote schemes', () => {
   const origin = 'http://127.0.0.1:43303';

@@ -1,10 +1,11 @@
 'use strict';
-const {app, BrowserWindow, dialog} = require('electron');
+const {app, BrowserWindow, dialog, ipcMain} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const {BackendController} = require('./backend.cjs');
 const {loadConfig} = require('./config.cjs');
 const {allowedURL, windowPreferences} = require('./security.cjs');
+const {bindWindowControls} = require('./window-controls.cjs');
 
 const root = path.resolve(__dirname, '..');
 let mainWindow;
@@ -50,9 +51,10 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     const origin = new URL(ready.url).origin;
     mainWindow = new BrowserWindow({width: 1380, height: 900, minWidth: 900, minHeight: 650,
-      title: 'talk', backgroundColor: '#161714', show: false, autoHideMenuBar: true,
-      webPreferences: windowPreferences()});
+      title: 'talk', frame: false, backgroundColor: '#161714', show: false, autoHideMenuBar: true,
+      webPreferences: {...windowPreferences(), preload: path.join(__dirname, 'preload.cjs')}});
     mainWindow.removeMenu();
+    bindWindowControls(ipcMain, mainWindow, origin);
     const contents = mainWindow.webContents;
     contents.session.setPermissionRequestHandler((_web, _permission, callback) => callback(false));
     contents.session.setPermissionCheckHandler(() => false);

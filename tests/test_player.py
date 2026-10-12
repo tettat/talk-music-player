@@ -159,6 +159,23 @@ class HttpTests(unittest.TestCase):
         response = connection.getresponse(); body = response.read(); connection.close()
         return response.status, dict(response.headers), body
 
+    def request_headers(self, path, headers=None, length=1):
+        # Header validation must reject before waiting for an upload. Sending an
+        # intentionally unread body can race a Windows TCP reset on connection close.
+        h = {'Host': self.host, 'Connection': 'close', 'Content-Type': 'application/json',
+             'X-Talk-CSRF': self.app.csrf, 'Content-Length': str(length)}
+        h.update(headers or {})
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=5)
+        try:
+            connection.putrequest('POST', path, skip_host=True)
+            for name, value in h.items():
+                connection.putheader(name, value)
+            connection.endheaders()
+            response = connection.getresponse()
+            return response.status, dict(response.headers), response.read()
+        finally:
+            connection.close()
+
     def test_page_csrf_and_security_headers(self):
         status, headers, body = self.request('/')
         self.assertEqual(status, 200)
@@ -171,6 +188,14 @@ class HttpTests(unittest.TestCase):
     def test_host_dns_rebinding_refused(self):
         self.assertEqual(self.request('/', headers={'Host': 'evil.invalid'})[0], 403)
 
+    def test_window_controls_module_is_static_and_hidden_without_desktop_bridge(self):
+        status, headers, body = self.request('/window-controls.mjs')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Type'], 'text/javascript; charset=utf-8')
+        self.assertIn(b'installWindowControls', body)
+        page = self.request('/')[2]
+        self.assertIn('aria-label="窗口控制" hidden'.encode('utf-8'), page)
+
     def test_cross_origin_get_refused(self):
         self.assertEqual(self.request('/api/library', headers={'Origin': 'https://evil.invalid'})[0], 403)
 
@@ -178,41 +203,28 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.request('/', headers={'Sec-Fetch-Site': 'cross-site'})[0], 403)
 
     def test_post_requires_csrf(self):
-        self.assertEqual(self.request('/api/favorite', {'key': TRACK['mid'], 'enabled': True},
-                                      {'X-Talk-CSRF': 'wrong'})[0], 403)
+        self.assertEqual(self.request_headers('/api/favorite', {'X-Talk-CSRF': 'wrong'})[0], 403)
+        self.assertEqual(self.app.library.snapshot()['favorites'], [])
 
     def test_post_requires_same_origin(self):
-        self.assertEqual(self.request('/api/favorite', {'key': TRACK['mid'], 'enabled': True},
-                                      {'Origin': 'http://evil.invalid'})[0], 403)
+        self.assertEqual(self.request_headers('/api/favorite', {'Origin': 'http://evil.invalid'})[0], 403)
+        self.assertEqual(self.app.library.snapshot()['favorites'], [])
 
     def test_no_private_file_routes(self):
         for path in ['/.private/library.sqlite3', '/../src/server.py', '/%2e%2e/src/server.py', '/src/bridge.py']:
             self.assertEqual(self.request(path)[0], 404)
 
     def test_json_required(self):
-        self.assertEqual(self.request('/api/state', raw='{}', headers={'Content-Type': 'text/plain'})[0], 415)
+        self.assertEqual(self.request_headers('/api/state', {'Content-Type': 'text/plain'})[0], 415)
 
     def test_nan_and_malformed_json_rejected(self):
         for raw in ['{"volume":NaN}', '{', '[]']:
             self.assertEqual(self.request('/api/state', raw=raw)[0], 400)
 
     def test_body_limit(self):
-        # Reject the declared size before reading any body. Uploading a body the
-        # server deliberately leaves unread can race Windows' TCP reset on close.
-        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=5)
-        try:
-            connection.putrequest('POST', '/api/state', skip_host=True)
-            for name, value in {'Host': self.host, 'Connection': 'close',
-                                'Content-Type': 'application/json',
-                                'X-Talk-CSRF': self.app.csrf,
-                                'Content-Length': str(128 * 1024 + 1)}.items():
-                connection.putheader(name, value)
-            connection.endheaders()
-            response = connection.getresponse()
-            self.assertEqual(response.status, 413)
-            self.assertEqual(json.loads(response.read()), {'code': 'BODY_LIMIT'})
-        finally:
-            connection.close()
+        status, _, body = self.request_headers('/api/state', length=128 * 1024 + 1)
+        self.assertEqual(status, 413)
+        self.assertEqual(json.loads(body), {'code': 'BODY_LIMIT'})
 
     def test_favorite_api(self):
         status, _, body = self.request('/api/favorite', {'key': TRACK['mid'], 'enabled': True})
