@@ -1,4 +1,5 @@
 import {AudioTransport, abcMeasureIndex, audioURL, formatTime, measureAt, rollLayout} from './timeline.mjs';
+import {printURL} from './print-layout.mjs';
 
 const embedded = location.pathname.startsWith('/extensions/score-lab/');
 const base = embedded ? '/extensions/score-lab' : '';
@@ -16,6 +17,7 @@ const colors = {vocal: '#8e9f78', instrumental: '#86a6b1', chords: '#c8b680'};
 const sourceNames = {qq: 'QQ 音乐', netease: '网易云音乐', local: '本机音频'};
 let toastTimer, pollTimer, resizeTimer;
 let editHelpers, editDraft, editCurrent, editing = false, editSelection = null, editSaving = false, editTimer;
+let pdfSaving = false, pdfPending = null;
 const editorReady = embedded ? import('./editor.mjs').then(value => {editHelpers = value;}).catch(() => {}) : Promise.resolve();
 const dirty = () => Boolean(editDraft && editCurrent && editDraft.abc !== editCurrent.abc);
 
@@ -225,7 +227,38 @@ function renderExports() {
     link.addEventListener('click', () => {$('export-menu').hidden = true; $('export-button').setAttribute('aria-expanded', 'false');});
     return link;
   }));
+  const pdf = document.createElement('button'); pdf.type = 'button'; pdf.className = 'pdf-export';
+  pdf.textContent = 'PDF · 乐谱'; pdf.addEventListener('click', exportPDF);
+  $('export-menu').prepend(pdf);
 }
+
+async function exportPDF() {
+  if (!state.data || dirty() || editSaving || pdfSaving) return;
+  $('export-menu').hidden = true; $('export-button').setAttribute('aria-expanded', 'false');
+  const request = {sampleId: state.selected, revisionId: state.data.revisionId || null};
+  if (!embedded || new URLSearchParams(location.search).get('nativePdf') !== '1') {
+    window.open(printURL(base, request.sampleId, request.revisionId, true), '_blank', 'noopener');
+    return;
+  }
+  pdfSaving = true; updateControls();
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timer = setTimeout(() => {pdfPending = null; reject(new Error('PDF 导出超时，请重试'));}, 15 * 60 * 1000);
+      pdfPending = {requestId, resolve: value => {clearTimeout(timer); resolve(value);}};
+      window.parent.postMessage({type: 'usic-score:pdf', requestId, ...request}, location.origin);
+    });
+    if (result.saved) toast('PDF 已导出');
+    else if (!result.cancelled) toast('PDF 未导出，请重试');
+  } catch (error) {toast(error.message);}
+  finally {pdfSaving = false; updateControls();}
+}
+
+window.addEventListener('message', event => {
+  if (event.origin !== location.origin || event.source !== window.parent || event.data?.type !== 'usic-score:pdf-result' ||
+      !pdfPending || event.data.requestId !== pdfPending.requestId) return;
+  const pending = pdfPending; pdfPending = null; pending.resolve(event.data);
+});
 
 async function loadAudio(seconds, resume) {
   $('play').disabled = true;
@@ -255,7 +288,7 @@ function updateControls() {
   $('play').setAttribute('aria-label', playing ? '暂停' : '播放');
   for (const id of ['seek', 'back', 'next', 'repeat', 'speed']) $(id).disabled = !state.data;
   if (state.mode === 'piano' && (dirty() || editSaving)) $('play').disabled = true;
-  $('export-button').disabled = !state.data || dirty() || editSaving;
+  $('export-button').disabled = !state.data || dirty() || editSaving || pdfSaving;
 }
 
 async function switchMode(mode, part = state.part) {

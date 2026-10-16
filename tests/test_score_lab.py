@@ -172,6 +172,16 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.request(path)[1]["Content-Type"], "text/javascript")
         self.assertEqual(self.request("/style.css")[1]["Content-Type"], "text/css; charset=utf-8")
 
+    def test_print_snapshot_and_assets_use_the_same_safe_standalone_routes(self):
+        for asset in ('print.html', 'print.mjs', 'print-layout.mjs', 'print.css'):
+            self.assertEqual(self.request('/' + asset)[0], 200)
+        common.atomic_json(self.directory / 'result.json', {'abc': 'X:1\nK:C\nC|\n'})
+        status, _, body = self.request('/api/samples/fixture/notation')
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)['revisionId'], None)
+        self.assertNotIn(str(self.root).encode(), body)
+        self.assertEqual(self.request('/api/samples/fixture/notation?revision=../secret')[0], 422)
+
     def test_audio_byte_range_and_head(self):
         status, headers, body = self.request("/media/fixture/original.wav", headers={"Range": "bytes=10-19"})
         self.assertEqual((status, body), (206, bytes(range(10, 20))))

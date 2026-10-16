@@ -30,7 +30,9 @@ else:
 
 WEB = Path(__file__).with_name("web")
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.mjs": "app.mjs",
-          "/timeline.mjs": "timeline.mjs", "/style.css": "style.css", "/embedded.css": "embedded.css"}
+          "/timeline.mjs": "timeline.mjs", "/style.css": "style.css", "/embedded.css": "embedded.css",
+          "/print.html": "print.html", "/print.mjs": "print.mjs",
+          "/print-layout.mjs": "print-layout.mjs", "/print.css": "print.css"}
 ABCJS_SHA256 = "abdab74cf95c39fb9ff4ae0c96735b9c35222851f0844ce471ddd4354739bc75"
 
 
@@ -246,6 +248,16 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/catalog":
                 return self.json({"samples": self.lab.samples(), "token": self.lab.token,
                                   "runtimeReady": runtime_ready(self.lab.config)})
+            match = re.fullmatch(r"/api/samples/([a-z0-9-]+)/notation", path)
+            if match:
+                if __package__:
+                    from .notation import notation_snapshot
+                else:
+                    from notation import notation_snapshot
+                params = parse_qs(urlsplit(self.path).query, keep_blank_values=True, max_num_fields=1)
+                if set(params) - {'revision'}:
+                    raise ValueError("Invalid notation query")
+                return self.json(notation_snapshot(self.lab.config, match[1], params.get('revision', [None])[0]))
             match = re.fullmatch(r"/api/samples/([a-z0-9-]+)", path)
             if match:
                 directory = sample_dir(self.lab.config, match[1])

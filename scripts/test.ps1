@@ -42,4 +42,10 @@ foreach($file in @('desktop\score-bundle.cjs','web\score-extension.mjs','capabil
 }
 & node --test (Join-Path $root 'tests\test_score_bundle.cjs') (Join-Path $root 'tests\test_score_extension.mjs')
 if($LASTEXITCODE -ne 0){throw 'SCORE_EXTENSION_CONTRACTS_FAILED'}
+foreach($file in @('desktop\score-pdf.cjs','capabilities\score_lab\web\print.mjs','capabilities\score_lab\web\print-layout.mjs')){
+  & node --check (Join-Path $root $file)
+  if($LASTEXITCODE -ne 0){throw ('SCORE_PDF_PARSE_FAILED: '+$file)}
+}
+& node --test (Join-Path $root 'tests\test_score_pdf.cjs') (Join-Path $root 'tests\test_score_pdf.mjs')
+if($LASTEXITCODE -ne 0){throw 'SCORE_PDF_CONTRACTS_FAILED'}
 Write-Output 'PLAYER_TESTS_OK'

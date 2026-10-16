@@ -334,13 +334,14 @@ h1 {
   z-index:10;
   box-shadow:0 12px 30px #38422e13
 }
-.export-menu a {
+.export-menu a, .export-menu .pdf-export {
   display:block;
   padding:10px 12px;
   font-size:11px;
   border-radius:6px
 }
-.export-menu a:hover {
+.export-menu .pdf-export {width:100%;text-align:left;color:inherit;}
+.export-menu a:hover, .export-menu .pdf-export:hover {
   background:#efefe7
 }
 .facts {

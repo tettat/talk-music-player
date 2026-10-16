@@ -176,12 +176,13 @@ test('OS window changes publish state and closed windows dispose IPC/listeners',
 });
 
 test('sandboxed preload exposes window-only methods, strips IPC events and supports unsubscribe', async () => {
-  let exposed, capabilities;
+  let exposed, capabilities, pdf;
   const invoked = [], listeners = new Map();
   const electron = {contextBridge: {exposeInMainWorld: (name, api) => {
-    assert.ok(['talkWindow', 'usicLyrics', 'usicCapabilities'].includes(name));
+    assert.ok(['talkWindow', 'usicLyrics', 'usicCapabilities', 'usicScorePdf'].includes(name));
     if (name === 'talkWindow') exposed = api;
     if (name === 'usicCapabilities') capabilities = api;
+    if (name === 'usicScorePdf') pdf = api;
   }},
     ipcRenderer: {invoke: async (...args) => {invoked.push(args);},
                   on: (channel, listener) => listeners.set(channel, listener),
@@ -192,6 +193,8 @@ test('sandboxed preload exposes window-only methods, strips IPC events and suppo
   assert.deepEqual(Object.keys(exposed).sort(), ['close', 'getState', 'minimize', 'onState', 'toggleMaximize']);
   assert.equal(Object.isFrozen(capabilities), true);
   assert.deepEqual(Object.keys(capabilities), ['chooseScoreBundle']);
+  assert.equal(Object.isFrozen(pdf), true);
+  assert.deepEqual(Object.keys(pdf), ['export']);
   await exposed.minimize('untrusted'); await exposed.toggleMaximize(); await exposed.close(); await exposed.getState();
   assert.deepEqual(invoked, ['minimize', 'toggle-maximize', 'close', 'state'].map(action => [WINDOW_COMMAND, action]));
   await capabilities.chooseScoreBundle('../untrusted-path');

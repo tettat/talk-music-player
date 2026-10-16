@@ -1,7 +1,7 @@
 {
   "name": "usic",
   "productName": "小黄花 · Usic",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Usic — local-first personal music player",
   "license": "GPL-3.0-or-later",
@@ -13,7 +13,7 @@
     "start": "node scripts/open-desktop.cjs",
     "score-lab": "node scripts/open-score-lab.cjs",
     "setup:desktop": "node node_modules/electron/install.js",
-    "test": "node --test tests/test_listening.mjs tests/test_desktop.cjs tests/test_aggregation.mjs tests/test_desktop_lyrics.cjs tests/test_lyrics_timeline.mjs tests/test_score_lab_timeline.mjs tests/test_score_bundle.cjs tests/test_score_extension.mjs",
+    "test": "node --test tests/test_listening.mjs tests/test_desktop.cjs tests/test_aggregation.mjs tests/test_desktop_lyrics.cjs tests/test_lyrics_timeline.mjs tests/test_score_lab_timeline.mjs tests/test_score_bundle.cjs tests/test_score_extension.mjs tests/test_score_pdf.cjs tests/test_score_pdf.mjs",
     "verify:desktop": "node scripts/verify_desktop.cjs",
     "pack:stage": "node scripts/package_windows.cjs stage",
     "pack:audit": "node scripts/package_windows.cjs audit",
@@ -21,7 +21,7 @@
     "pack:win": "node scripts/package_windows.cjs nsis",
     "test:packaging": "node --test tests/test_packaging.cjs",
     "verify:packaging": "node scripts/verify_packaging.cjs",
-    "test:score": "node --test tests/test_score_bundle.cjs tests/test_score_extension.mjs"
+    "test:score": "node --test tests/test_score_bundle.cjs tests/test_score_extension.mjs tests/test_score_pdf.cjs tests/test_score_pdf.mjs"
   },
   "devDependencies": {
     "electron": "44.7.0",

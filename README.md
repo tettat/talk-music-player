@@ -8,7 +8,7 @@
 
 ## 安装与打开
 
-已有 **Windows x64 私人测试安装包**：`dist/Usic-0.1.0-windows-x64-setup.exe`。按当前用户安装，可选目录，不需管理员权限；启动即运行本地后台，退出一起关闭。不需要系统 Python、Node 或官方音乐客户端。账号、私人音乐、数据库和开发机路径不在包里；新安装需自行连接账号。安装器尚未签名，公开发行前仍需安全、许可和平台条款复核；安装包尚未通过 GitHub Releases 分发。详见 [`packaging/INSTALLER.txt`](packaging/INSTALLER.txt)。
+已有 **Windows x64 私人测试安装包**：`dist/Usic-0.1.1-windows-x64-setup.exe`。按当前用户安装，可选目录，不需管理员权限；启动即运行本地后台，退出一起关闭。不需要系统 Python、Node 或官方音乐客户端。账号、私人音乐、数据库和开发机路径不在包里；新安装需自行连接账号。安装器尚未签名，公开发行前仍需安全、许可和平台条款复核；安装包尚未通过 GitHub Releases 分发。详见 [`packaging/INSTALLER.txt`](packaging/INSTALLER.txt)。
 
 **可选谱室：**主安装包只含能力代码；大模型、推理 Python 与音色独立放在 `dist/Usic-ScoreLab-0.1.0-windows-x64/`，约 4.15 GiB。在谱室中「选择能力包」，选择含 `score-pack.json` 的文件夹。原生窗口选择后逐文件校验再配置；搬动能力包需重新选择。需要 Windows x64 的 Visual C++ 2015–2022 运行库，详见 [`capabilities/score_lab/PACK.txt`](capabilities/score_lab/PACK.txt)。能力包仅个人非商业测试，不表示已获公开或商业分发授权。
 
@@ -38,6 +38,8 @@ npm start
 ## 本机配置
 
 **播放器内识谱：**左侧「谱室」可启用／停用；歌曲识谱按钮、更多菜单及当前歌曲播放条可发起 30 秒、90 秒或整首任务。后台显示实际阶段，多窗口显示计数，不用守在页面。可取消、重试，完成结果长期保存在本机；退出应用停止本应用的模型进程，下次可重试中断任务。工作台保留三声部、原曲／钢琴对照、音符视图与分声部试听。编辑先支持音高纠错、和弦单音与连音链、撤销／重做；节奏、声部、拍号与调性锁定，不声称完整自由编谱。保存后生成独立修订及新的 MIDI／MusicXML／ABC／钢琴回放；未保存草稿不会混用旧钢琴或旧导出。原始识别不覆盖。边界和数据目录见 [`capabilities/score_lab/INTEGRATION.txt`](capabilities/score_lab/INTEGRATION.txt)，编辑契约见 [`capabilities/score_lab/EDITING.txt`](capabilities/score_lab/EDITING.txt)。
+
+**乐谱 PDF：**打开已完成的乐谱，右上角下载菜单选「PDF · 乐谱」。客户端直接选择保存位置，导出 A4 白底矢量五线谱，保留人声、器乐与和弦伴奏，按谱行分页并带页码；使用当前已保存修订，不重新跑模型，也不改变原曲。未保存编辑时先保存或还原。独立网页入口打开打印版，可在浏览器打印对话框中保存 PDF。
 
 独立扒谱 demo：在项目根目录运行 `npm run score-lab`，打开「谱室」；原曲／钢琴回放、含和弦伴奏的五线谱／原始时间音符、分声部试听和 MIDI／MusicXML 导出。支持 30 秒、90 秒或整首（最多 15 分钟），已实跑两首完整歌曲。它不启动或修改播放器，不使用账号。模型环境与私人音频单独配置，详见 [`capabilities/score_lab/README.txt`](capabilities/score_lab/README.txt)。和弦谱来自现有 MIDI 配音，不等于逐乐器完整伴奏扒谱。SheetSage2／MERT 权重为非商用许可，本机研究 demo 不等于已获商业分发授权。
 

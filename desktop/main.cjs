@@ -8,6 +8,7 @@ const {allowedURL, windowPreferences} = require('./security.cjs');
 const {bindWindowControls} = require('./window-controls.cjs');
 const {createDesktopLyrics} = require('./lyrics-window.cjs');
 const {bindScoreBundle} = require('./score-bundle.cjs');
+const {bindScorePdf} = require('./score-pdf.cjs');
 
 const root = path.resolve(__dirname, '..');
 const displayName = '小黄花 · Usic';
@@ -63,6 +64,7 @@ if (!app.requestSingleInstanceLock()) {
     bindWindowControls(ipcMain, mainWindow, origin);
     bindScoreBundle({ipcMain, dialog, window: mainWindow, origin, root,
       dataDir: process.env.TALK_DESKTOP_QA === '1' ? path.join(config.data_dir, 'qa') : config.data_dir});
+    bindScorePdf({ipcMain, BrowserWindow, dialog, window: mainWindow, origin});
     createDesktopLyrics({BrowserWindow, ipcMain, screen, globalShortcut, mainWindow, origin,
       profile: app.getPath('userData')});
     const contents = mainWindow.webContents;

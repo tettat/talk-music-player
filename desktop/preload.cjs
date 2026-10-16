@@ -8,6 +8,10 @@ contextBridge.exposeInMainWorld('usicCapabilities', Object.freeze({
   chooseScoreBundle: () => ipcRenderer.invoke('usic:score-bundle'),
 }));
 
+contextBridge.exposeInMainWorld('usicScorePdf', Object.freeze({
+  export: (sampleId, revisionId = null) => ipcRenderer.invoke('usic:score-pdf', {sampleId, revisionId}),
+}));
+
 contextBridge.exposeInMainWorld('talkWindow', Object.freeze({
   minimize: () => ipcRenderer.invoke(command, 'minimize'),
   toggleMaximize: () => ipcRenderer.invoke(command, 'toggle-maximize'),

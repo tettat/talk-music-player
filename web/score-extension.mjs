@@ -120,7 +120,7 @@ export function installScoreExtension({api, showView, getTrack, getCurrent, onEr
   }
   function home() {opened = false; frame.removeAttribute('src'); $('scores-workbench').hidden = true; $('scores-overview').hidden = false;}
   function open(id) {opened = true; $('scores-overview').hidden = true; $('scores-workbench').hidden = false;
-    frame.src = `/extensions/score-lab/?embedded=1&sample=${encodeURIComponent(id)}`;}
+    frame.src = `/extensions/score-lab/?embedded=1&sample=${encodeURIComponent(id)}&nativePdf=${window.usicScorePdf?.export ? '1' : '0'}`;}
   async function openTrack(key) {
     selectedTrack = getTrack(key); if (!selectedTrack) return;
     if (!description?.enabled) {await enable(true);}
@@ -154,6 +154,17 @@ export function installScoreExtension({api, showView, getTrack, getCurrent, onEr
     if (event.data?.type === 'usic-score:home') {home(); refresh();}
     if (event.data?.type === 'usic-score:play') pausePlayer();
     if (event.data?.type === 'usic-score:queued') {home(); refresh(); toast('已加入谱室');}
+    if (event.data?.type === 'usic-score:pdf') {
+      const input = event.data;
+      if (typeof input.requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(input.requestId)) return;
+      const source = event.source;
+      Promise.resolve().then(() => {
+        if (!window.usicScorePdf?.export) throw new Error('PDF_UNAVAILABLE');
+        return window.usicScorePdf.export(input.sampleId, input.revisionId);
+      }).then(result => source.postMessage({type: 'usic-score:pdf-result', requestId: input.requestId,
+        saved: result?.saved === true, cancelled: result?.cancelled === true}, location.origin))
+        .catch(() => source.postMessage({type: 'usic-score:pdf-result', requestId: input.requestId, failed: true}, location.origin));
+    }
   });
   window.addEventListener('pagehide', () => clearTimeout(timer));
   refresh();

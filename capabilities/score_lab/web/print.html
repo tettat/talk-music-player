@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>乐谱 · 小黄花</title>
+  <link rel="stylesheet" href="./print.css">
+  <script src="./vendor/abcjs-basic-min.js" defer></script>
+  <script type="module" src="./print.mjs"></script>
+</head>
+<body>
+  <nav class="print-toolbar"><button id="print-button" type="button" disabled>打印 / 保存 PDF</button></nav>
+  <main>
+    <header><h1 id="title"></h1><p id="artist"></p></header>
+    <p id="status" role="status">正在排版…</p>
+    <div id="notation" aria-label="乐谱"></div>
+  </main>
+</body>
+</html>

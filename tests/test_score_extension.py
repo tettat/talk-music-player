@@ -103,6 +103,22 @@ class ExtensionTests(unittest.TestCase):
         status, headers, _ = self.request('/extensions/score-lab/')
         self.assertEqual(status, 200)
         self.assertEqual(headers['X-Frame-Options'], 'SAMEORIGIN')
+
+    def test_print_assets_and_bounded_saved_notation_snapshot(self):
+        for asset in ('print.html', 'print.mjs', 'print-layout.mjs', 'print.css'):
+            self.assertEqual(self.request('/extensions/score-lab/' + asset)[0], 200)
+        lab, sid, directory = self.fixture()
+        url = f'/extensions/score-lab/api/samples/{sid}/notation'
+        self.assertEqual(self.request(url)[0], 422)
+        atomic_json(directory / 'status.json', {'state': 'completed'})
+        atomic_json(directory / 'result.json', {'abc': 'X:1\nK:C\nC|\n'})
+        status, headers, body = self.request(url)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)['abc'], 'X:1\nK:C\nC|\n')
+        self.assertNotIn(str(directory).encode(), body)
+        for suffix in ('?revision=../secret', '?revision=', '?revision=a&revision=b', '?path=secret'):
+            self.assertEqual(self.request(url + suffix)[0], 422)
+        self.assertEqual(self.request(url, headers={'Origin': 'https://evil.example'})[0], 403)
         self.assertIn("frame-ancestors 'self'", headers['Content-Security-Policy'])
         self.assertIn("frame-src 'self'", self.request('/')[1]['Content-Security-Policy'])
 

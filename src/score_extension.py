@@ -33,6 +33,8 @@ PREFIX = '/extensions/score-lab/'
 WEB = ROOT / 'capabilities/score_lab/web'
 STATIC = {'': 'index.html', 'index.html': 'index.html', 'app.mjs': 'app.mjs',
           'timeline.mjs': 'timeline.mjs', 'editor.mjs': 'editor.mjs',
+          'print.html': 'print.html', 'print.mjs': 'print.mjs',
+          'print-layout.mjs': 'print-layout.mjs', 'print.css': 'print.css',
           'style.css': 'style.css', 'embedded.css': 'embedded.css'}
 
 
@@ -436,6 +438,13 @@ class MountedHandler:
         if route == 'api/catalog':
             return self.json({'samples': lab.samples(), 'token': self.extension.player.csrf,
                 'runtimeReady': runtime_ready(config), 'embedded': True})
+        match = re.fullmatch(r'api/samples/([a-z0-9-]+)/notation', route)
+        if match:
+            from capabilities.score_lab.notation import notation_snapshot
+            params = parse_qs(urlsplit(self.host.path).query, keep_blank_values=True, max_num_fields=1)
+            if set(params) - {'revision'}:
+                raise ValueError('Invalid notation query')
+            return self.json(notation_snapshot(config, match[1], params.get('revision', [None])[0]))
         match = re.fullmatch(r'api/samples/([a-z0-9-]+)', route)
         if match:
             directory = sample_dir(config, match[1])
