@@ -1,7 +1,9 @@
 """Offline loopback contracts; synthetic lyric and model results are not live evidence."""
 import json
+from contextlib import nullcontext
 from pathlib import Path
 import sys
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -84,7 +86,7 @@ class InsightHttpTests(unittest.TestCase):
 
     def test_pending_analysis_deduplicates_even_when_model_is_busy(self):
         jid='a'*32
-        self.app.extra_jobs[jid]={'id':jid,'kind':'analysis','key':TRACK['mid'],'status':'loading','created':time.time()}
+        self.app.extra_jobs[jid]={'id':jid,'kind':'analysis','key':fixtures.TRACK_KEY,'status':'loading','created':time.time()}
         status,_,body=self.request('/api/analyze',{'key':TRACK['mid']})
         self.assertEqual(status,202); self.assertEqual(json.loads(body)['job'],jid)
         self.assertFalse(self.app.network.locked())
@@ -98,7 +100,50 @@ class InsightHttpTests(unittest.TestCase):
                 if result['status']!='loading':break
                 time.sleep(.01)
         self.assertEqual(result['code'],'ANALYSIS_FAILED'); self.assertNotIn('PRIVATE_DETAIL',json.dumps(result))
+        reopened=json.loads(self.request('/api/analysis/'+TRACK['mid'])[2])
+        self.assertEqual(reopened['status'],'error'); self.assertEqual(reopened['code'],'ANALYSIS_FAILED')
+        self.assertIsNone(reopened['analysis'])
         self.assertFalse(self.app.network.locked()); self.assertFalse(self.app.analysis_slot.locked())
+
+    def test_reopening_analysis_reattaches_pending_refresh_with_cached_result(self):
+        cached=self.app.insights.put('analysis',TRACK['mid'],{'kind':'pitch','estimated':True})
+        jid='b'*32
+        self.app.extra_jobs[jid]={'id':jid,'kind':'analysis','key':fixtures.TRACK_KEY,
+                                 'status':'loading','phase':'model','created':time.time()}
+        result=json.loads(self.request('/api/analysis/'+TRACK['mid'])[2])
+        self.assertEqual(result['status'],'loading'); self.assertEqual(result['job'],jid)
+        self.assertEqual(result['phase'],'model'); self.assertEqual(result['analysis'],cached)
+        self.assertFalse(self.app.network.locked())
+
+    def test_analysis_phase_and_cache_survive_panel_polling(self):
+        entered=threading.Event(); finish=threading.Event()
+        def source(operation,**args):
+            self.assertEqual(operation,'source')
+            self.assertTrue(any(j.get('phase')=='audio' for j in self.app.extra_jobs.values()))
+            return {'path':'synthetic.mp3','media':{'sha256':'a'*64}}
+        def model(*args):
+            self.assertFalse(self.app.network.locked())
+            entered.set(); finish.wait(5)
+            return {'kind':'pitch','estimated':True,'notes':[]}
+        with patch('server.analysis_runner.ready',return_value=True), \
+             patch('server.analysis_runner.work_directory',return_value=nullcontext('synthetic')), \
+             patch('server.analysis_runner.copy_authorized',return_value='synthetic.mp3'), \
+             patch('server.analysis_runner.analyze',side_effect=model), \
+             patch.object(self.app.bridge,'run',side_effect=source):
+            try:
+                status,_,body=self.request('/api/analyze',{'key':TRACK['mid']})
+                self.assertEqual(status,202); jid=json.loads(body)['job']
+                self.assertTrue(entered.wait(3))
+                pending=json.loads(self.request('/api/analysis/'+TRACK['mid'])[2])
+                self.assertEqual(pending['job'],jid); self.assertEqual(pending['phase'],'model')
+            finally: finish.set()
+            for _ in range(100):
+                result=json.loads(self.request('/api/jobs/'+jid)[2])
+                if result['status']!='loading':break
+                time.sleep(.01)
+        self.assertEqual(result['status'],'ready'); self.assertEqual(result['phase'],'done')
+        cached=json.loads(self.request('/api/analysis/'+TRACK['mid'])[2])
+        self.assertEqual(cached['status'],'ready'); self.assertEqual(cached['analysis']['source'],'qq')
 
     def test_cached_analysis_never_exposes_private_fields(self):
         value=self.app.insights.put('analysis',TRACK['mid'],{'kind':'pitch','estimated':True})

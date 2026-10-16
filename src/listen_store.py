@@ -15,6 +15,12 @@ REASONS = {'playing', 'pause', 'seek', 'ended', 'skip', 'close'}
 FINAL = {'ended', 'skip', 'close'}
 
 
+def valid_source(source):
+    if not isinstance(source, str) or source not in ('all', 'qq', 'netease'):
+        raise PlayerError('INVALID_INPUT')
+    return source
+
+
 def number(value, low, high):
     if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
         raise PlayerError('INVALID_LISTEN')
@@ -52,8 +58,10 @@ class History:
                 id TEXT PRIMARY KEY, key TEXT NOT NULL REFERENCES tracks(key),
                 started REAL NOT NULL, updated REAL NOT NULL, seq INTEGER NOT NULL,
                 seconds REAL NOT NULL, coverage REAL NOT NULL, segments TEXT NOT NULL,
-                reason TEXT NOT NULL, qualified INTEGER NOT NULL, completed INTEGER NOT NULL);
+                reason TEXT NOT NULL, qualified INTEGER NOT NULL, completed INTEGER NOT NULL,
+                source TEXT NOT NULL DEFAULT 'qq');
               CREATE INDEX IF NOT EXISTS talk_listens_recent ON talk_listens(started DESC,id DESC);
+              CREATE INDEX IF NOT EXISTS talk_listens_source ON talk_listens(source,started DESC);
               CREATE TABLE IF NOT EXISTS talk_listen_days (
                 id TEXT NOT NULL REFERENCES talk_listens(id), day TEXT NOT NULL,
                 seconds REAL NOT NULL, plays INTEGER NOT NULL, completed INTEGER NOT NULL,
@@ -71,6 +79,7 @@ class History:
         seconds = number(payload['seconds'], 0, 86400)
         with self.library.lock:
             track = self.library.get(key)
+            key = track['key']
             segments, heard = merge_segments(payload['segments'], track['duration'])
             # No raw position-as-listening-time; still a client observation, not an anti-fraud guarantee.
             if heard > seconds * 4 + .1:
@@ -108,9 +117,11 @@ class History:
                         (now, seq, seconds, coverage, json.dumps(segments), reason,
                          int(new_qualified), int(new_completed), sid))
                 else:
-                    db.execute('INSERT INTO talk_listens VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                    db.execute('''INSERT INTO talk_listens
+                        (id,key,started,updated,seq,seconds,coverage,segments,reason,qualified,completed,source)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                         (sid, key, now, now, seq, seconds, coverage, json.dumps(segments), reason,
-                         int(new_qualified), int(new_completed)))
+                         int(new_qualified), int(new_completed), track['source']))
                 db.execute('''INSERT INTO talk_listen_days VALUES(?,?,?,?,?,?)
                     ON CONFLICT(id,day) DO UPDATE SET seconds=seconds+excluded.seconds,
                     plays=plays+excluded.plays,completed=completed+excluded.completed,
@@ -126,31 +137,43 @@ class History:
         return {'ok': True, 'seconds': round(seconds, 4), 'coverage': round(coverage, 4),
                 'qualified': bool(new_qualified), 'completed': bool(new_completed)}
 
-    def recent(self, limit=50, offset=0):
+    def recent(self, limit=50, offset=0, source='all'):
+        valid_source(source)
         if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
             raise PlayerError('INVALID_INPUT')
         with self.library.lock:
-            rows = self.library.db.execute('''SELECT id,key,started,updated,seconds,coverage,qualified,completed,reason
-                FROM talk_listens WHERE seconds>0 ORDER BY started DESC,id DESC LIMIT ? OFFSET ?''',
-                (limit+1, offset)).fetchall()
+            rows = self.library.db.execute('''SELECT id,key,started,updated,seconds,coverage,qualified,completed,reason,source
+                FROM talk_listens WHERE seconds>0 AND (?='all' OR source=?)
+                ORDER BY started DESC,id DESC LIMIT ? OFFSET ?''',
+                (source, source, limit+1, offset)).fetchall()
             items = [{'id': row[0], 'track': self.library.get(row[1]), 'startedAt': row[2], 'updatedAt': row[3],
                       'seconds': round(row[4], 4), 'coverage': round(row[5], 4), 'qualified': bool(row[6]),
-                      'completed': bool(row[7]), 'reason': row[8]} for row in rows[:limit]]
-        return {'items': items, 'hasMore': len(rows) > limit}
+                      'completed': bool(row[7]), 'reason': row[8], 'source': row[9]} for row in rows[:limit]]
+        return {'items': items, 'hasMore': len(rows) > limit, 'source': source}
 
-    def summary(self, days=7):
+    def summary(self, days=7, source='all'):
+        valid_source(source)
         if type(days) is not int or days not in (0, 7, 30):
             raise PlayerError('INVALID_INPUT')
         today = datetime.fromtimestamp(self.clock(), TZ).date()
         since = (today-timedelta(days=days-1)).isoformat() if days else '0001-01-01'
         with self.library.lock:
-            daily = self.library.db.execute('''SELECT day,sum(seconds),sum(plays),sum(completed),sum(skipped)
-                FROM talk_listen_days WHERE day>=? GROUP BY day ORDER BY day''', (since,)).fetchall()
+            daily = self.library.db.execute('''SELECT d.day,sum(d.seconds),sum(d.plays),sum(d.completed),sum(d.skipped)
+                FROM talk_listen_days d JOIN talk_listens l ON l.id=d.id
+                WHERE d.day>=? AND (?='all' OR l.source=?) GROUP BY d.day ORDER BY d.day''',
+                (since, source, source)).fetchall()
             rows = self.library.db.execute('''SELECT l.key,sum(d.seconds),sum(d.plays)
                 FROM talk_listen_days d JOIN talk_listens l ON l.id=d.id
-                WHERE d.day>=? GROUP BY l.key HAVING sum(d.seconds)>0''', (since,)).fetchall()
+                WHERE d.day>=? AND (?='all' OR l.source=?) GROUP BY l.key HAVING sum(d.seconds)>0''',
+                (since, source, source)).fetchall()
             tracks = [{'track': self.library.get(key), 'seconds': round(seconds, 3), 'plays': plays}
                       for key, seconds, plays in rows]
+            by_source = [{'source': name, 'seconds': round(seconds, 3), 'plays': plays, 'songCount': count}
+                         for name, seconds, plays, count in self.library.db.execute('''
+                SELECT l.source,sum(d.seconds),sum(d.plays),count(DISTINCT l.key)
+                FROM talk_listen_days d JOIN talk_listens l ON l.id=d.id
+                WHERE d.day>=? AND d.seconds>0 AND (?='all' OR l.source=?) GROUP BY l.source''',
+                (since, source, source))]
         artists = {}
         for item in tracks:
             name = item['track']['artist']
@@ -162,7 +185,7 @@ class History:
         chart = [points.get((today-timedelta(days=i)).isoformat(),
                            {'date': (today-timedelta(days=i)).isoformat(), 'seconds': 0, 'plays': 0})
                  for i in reversed(range(count))]
-        return {'days': days, 'timezone': 'Asia/Shanghai',
+        return {'days': days, 'source': source, 'bySource': by_source, 'timezone': 'Asia/Shanghai',
                 'totalSeconds': round(sum(row[1] for row in daily), 3), 'playCount': sum(row[2] for row in daily),
                 'songCount': len(tracks), 'completedCount': sum(row[3] for row in daily),
                 'skippedCount': sum(row[4] for row in daily), 'daily': chart,

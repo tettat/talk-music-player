@@ -1,0 +1,103 @@
+谱室：私有线上识谱与 QScore 集成方案
+==================================
+核对日期：2026-10-14。
+状态：可行性调研与设计；没有部署云资源、创建付费实例或修改播放器运行代码。
+
+结论
+----
+可以把上传、识别任务、谱面、回放和结果保存放到线上，只允许本人访问。
+普通 Cloudflare Workers 不是此 PyTorch 模型的运行环境；公开限制为
+每 isolate 128 MB 内存，付费 HTTP 请求 CPU 上限 5 分钟。
+Cloudflare Containers 则提供可运行自定义容器的 CPU/内存实例，可作为
+全 Cloudflare 的 CPU 推理候选，但必须做实际的 Linux、内存和速度验收。
+不能把 Containers 的公开 CPU 规格当成 GPU 来估算性能。
+Workers AI 的私人自定义模型需要联系官方，不是现有模型随意上传即用。
+
+候选部署
+--------
+A. 全 Cloudflare CPU 版：
+   页面/轻量 API + Access + 私有 R2 + Containers。
+   可先试 4 vCPU / 12 GiB 容器，不将这个试验规格称为模型最低需求。
+   Containers 属于 Workers Paid：当前基础 5 美元/月，另按相关实际用量收费；
+   可闲置休眠，不能把包含额度理解成所有资源永久免费。
+   优点是平台集中；速度仍按分钟级做预算，不承诺比本机快。
+
+B. Cloudflare 入口 + 按需 GPU 推理：
+   Cloudflare 管理页面、鉴权、上传与结果；Modal 等 GPU 服务运行模型。
+   推荐先做同版本、同输入基准，再决定是否值得采用 GPU。
+   权重固定版本并预先缓存，不在每次任务中重新下载。
+   GPU 模型可在容器生命周期内复用；不使用时缩容到零。
+   冷启动、权重加载、排队及保温费用都要单独记录。
+
+统一任务流程
+------------
+授权上传 -> 私有对象存储 -> 持久化任务 -> 推理 -> MusicXML/MIDI/音符时间轴
+-> 预览/对照试听/下载。任务异步，不靠保持一条长 HTTP 请求等完整识别。
+
+首版只做识谱：上传、排队/真实阶段进度、结果重新打开、试听、导出、删除。
+推理后端配置化，使 CPU 容器与 GPU 服务能共用同一套页面和结果协议。
+保留当前输入大小/时长上限与单任务并发限制，增加幂等、超时、失败重试、
+结果保留期与预算上限。云版本需要独立鉴权适配，不能直接暴露本机演示端口。
+
+私有性
+------
+Access 只放行本人身份，API 也验证身份；不是靠隐藏网址保护。
+R2 不启用公开访问。结果下载通过受保护入口或有短时效的授权链接。
+外部推理入口同样鉴权，服务凭证只放后端 secret，不进前端和 Git。
+QQ/网易云登录态留在本机；云识谱接收获得使用权的音频文件，不接管音乐账号。
+线上识别意味着音频会交给云服务处理；仅本人可访问不等于仍完全在设备内。
+
+本机实测基线
+------------
+当前 CPU / FP32，配置 2 线程。以下是 result.json 中的模型识别阶段墙钟时间，
+不含模型加载、上传，也不含我们后续补伴奏谱和钢琴采样渲染的耗时。
+
+主角 30 秒片段：125.75 秒。
+主角 300.288 秒整首：308.31 秒，2 个重叠窗口。
+喜欢寂寞 264.7075 秒整首：199.94 秒，1 个窗口。
+
+没有当前程序的云 CPU / 云 GPU 实测结果，不能承诺几秒或多少倍加速。
+云端总等待 = 上传 + 排队/冷启动 + 模型加载 + 识别 + 补谱/试听资源准备。
+需同时记录冷启动与热启动、峰值内存/显存、识别输出差异、总等待与实际费用。
+云 CPU 未必快于本机；GPU 有加速潜力，但不按其他模型的 benchmark 推算。
+
+QScore Studio 集成
+-----------------
+已只读核对 tettat/qscore-studio 当前 main 的 README 与以下包：
+@qscore/musicxml-codec：MusicXML 3.0/3.1/4.x score-partwise 导入、4.0 导出；
+@qscore/score-core：乐谱规范模型、编辑命令、事务、撤销/重做；
+@qscore/score-editor：React/VexFlow 编辑表面与播放事件高亮。
+
+推荐对接 MusicXML 和规范模型，不把当前 ABCJS 的 SVG 当作可编辑文档。
+但不是零改动导入：
+1. 当前编辑投影选择一个 Part 的 treble/bass 两个 Staff。谱室结果是
+   人声、器乐、和弦伴奏三个 Part/谱表，需要明确的多 Part/多谱表适配。
+   不静默漏掉第三个声部，或未经说明把所有内容压在一个声部里。
+2. 当前 MusicXML codec 对 harmony 和小节内部调号变化等有不支持边界，
+   会给诊断。和弦名称及相关语义需补适配，不能因为有和弦音符就假定无损。
+3. 原始识别结果、原始音频秒数、编辑后的谱分开保存。
+   改音高或音长后用编辑谱生成新的试听，不覆写原识别/原曲；
+   原曲对齐仍以模型拍点/小节映射为依据，不承诺量化谱逐音完美对齐。
+
+实施顺序：独立线上识谱服务 -> 同曲 CPU/GPU 测速 -> MusicXML 适配与编辑集成。
+目前没有把识谱服务接入 QScore，也未验证真实文件在其编辑器中的完整往返。
+
+许可
+----
+当前 SheetSage2 / MERT 权重按非商业许可使用，保留来源与许可。
+本人非商业方案与将来对外收费/商用不是同一个授权场景。
+音乐不公开分发；不能把模型许可当作音乐版权授权。
+
+核对来源
+--------
+https://developers.cloudflare.com/workers/platform/limits/
+https://developers.cloudflare.com/containers/platform/limits/
+https://developers.cloudflare.com/containers/platform/pricing/
+https://developers.cloudflare.com/workers-ai/platform/limits/
+https://developers.cloudflare.com/cloudflare-one/access-controls/policies/
+https://modal.com/docs/guide/gpu
+https://modal.com/docs/guide/cold-start
+https://modal.com/docs/guide/model-weights
+https://huggingface.co/m-a-p/SheetSage2
+https://creativecommons.org/licenses/by-nc/4.0/
+https://github.com/tettat/qscore-studio

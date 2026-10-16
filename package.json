@@ -1,16 +1,30 @@
 {
-  "name": "talk-music-player",
+  "name": "usic",
+  "productName": "小黄花 · Usic",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first personal music player with an Electron desktop shell",
+  "description": "Usic — local-first personal music player",
   "license": "GPL-3.0-or-later",
   "main": "desktop/main.cjs",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "start": "node scripts/open-desktop.cjs",
+    "score-lab": "node scripts/open-score-lab.cjs",
     "setup:desktop": "node node_modules/electron/install.js",
-    "test": "node --test tests/test_listening.mjs tests/test_desktop.cjs",
-    "verify:desktop": "node scripts/verify_desktop.cjs"
+    "test": "node --test tests/test_listening.mjs tests/test_desktop.cjs tests/test_aggregation.mjs tests/test_desktop_lyrics.cjs tests/test_lyrics_timeline.mjs tests/test_score_lab_timeline.mjs tests/test_score_bundle.cjs tests/test_score_extension.mjs",
+    "verify:desktop": "node scripts/verify_desktop.cjs",
+    "pack:stage": "node scripts/package_windows.cjs stage",
+    "pack:audit": "node scripts/package_windows.cjs audit",
+    "pack:dir": "node scripts/package_windows.cjs dir",
+    "pack:win": "node scripts/package_windows.cjs nsis",
+    "test:packaging": "node --test tests/test_packaging.cjs",
+    "verify:packaging": "node scripts/verify_packaging.cjs",
+    "test:score": "node --test tests/test_score_bundle.cjs tests/test_score_extension.mjs"
   },
-  "devDependencies": { "electron": "44.7.0" }
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  }
 }

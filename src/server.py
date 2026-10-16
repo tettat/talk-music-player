@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -20,9 +21,10 @@ import urllib.request
 
 SRC = Path(__file__).resolve().parent
 sys.path.insert(0, str(SRC))  # One fixed owned directory, including under Python -I.
-from library import Library, PlayerError, text, valid_mid
+from library import Library, PlayerError, clean_track, text, valid_mid
 from bridge import Bridge
 from providers import ProviderRegistry
+from providers.netease import NetEase
 from settings import SETTINGS
 from listen_store import History
 from insights import InsightStore, lyric_document
@@ -65,10 +67,11 @@ class Player:
         self.insights = InsightStore(self.library)
         self.web = Path(web) if web is not None else WEB
         self.bridge = Bridge(self.private) if live else None
-        self.providers = ProviderRegistry([self.bridge] if live else [])
+        self.providers = ProviderRegistry([self.bridge, NetEase(self.private)] if live else [])
         self.csrf = secrets.token_urlsafe(32)
         self.lock = threading.RLock()
         self.network = threading.Lock()
+        self.provider_network = {'netease': threading.Lock()}
         self.jobs = {}
         self.extra_jobs = {}
         self.analysis_slot = threading.Lock()
@@ -78,60 +81,135 @@ class Player:
         self.covers = self.private / 'covers'
         self.covers.mkdir(exist_ok=True)
         self.instance = secrets.token_hex(16)
+        self._score_extension = None
+
+    @property
+    def scores(self):
+        # A broken/disabled optional capability never prevents music startup.
+        with self.lock:
+            if self._score_extension is None:
+                from score_extension import ScoreExtension
+                self._score_extension = ScoreExtension(self)
+            return self._score_extension
 
     def seed(self):
         # A fresh checkout starts empty; never publish one user's prototype library.
         return None
 
     @contextmanager
-    def network_action(self):
-        if not self.network.acquire(blocking=False):
+    def network_action(self, source='qq'):
+        lock = self.network_lock(source)
+        if not lock.acquire(blocking=False):
             raise PlayerError('BUSY', 409)
         try:
             yield
         finally:
-            self.network.release()
+            lock.release()
+
+    def provider(self, source):
+        # Retain the original QQ bridge as-is, including its login lifecycle.
+        if source == 'qq' and self.bridge is not None:
+            return self.bridge
+        return self.providers.get(source)
+
+    def network_lock(self, source):
+        if source == 'qq':
+            return self.network
+        if source not in self.provider_network:
+            raise PlayerError('PROVIDER_UNAVAILABLE', 422)
+        return self.provider_network[source]
+
+    def busy(self):
+        return (self.network.locked() or any(lock.locked() for lock in self.provider_network.values())
+                or self.analysis_slot.locked())
 
     def snapshot(self):
-        return {**self.library.snapshot(), 'account': self.bridge.public()}
+        return {**self.library.snapshot(), 'account': self.bridge.public() if self.bridge else {},
+                'providers': self.providers.describe()}
 
-    def search(self, query, page):
+    def search(self, query, page, source='qq', pages=None):
         query = text(query, 120)
         if type(page) is not int or not 1 <= page <= 10:
             raise PlayerError('INVALID_INPUT')
-        with self.network_action():
-            result = self.bridge.run('search', query=query, page=page)
-            result['tracks'] = self.library.put(result['tracks'])
-        return result
+        if not isinstance(source, str) or source not in ('all', 'qq', 'netease'):
+            raise PlayerError('INVALID_INPUT')
+        selected = ['qq', 'netease'] if source == 'all' else [source]
+        if pages is None:
+            pages = {name: page for name in selected}
+        elif (not isinstance(pages, dict) or not pages or set(pages)-set(selected)
+              or any(type(value) is not int or not 1 <= value <= 10 for value in pages.values())):
+            raise PlayerError('INVALID_INPUT')
+
+        def fetch(name):
+            with self.network_action(name):
+                result = self.provider(name).run('search', query=query, page=pages[name])
+                tracks = [clean_track(track) for track in result['tracks'][:30]]
+                if any(track['source'] != name for track in tracks):
+                    raise PlayerError('TRACK_IDENTITY_MISMATCH', 502)
+                return {'tracks': self.library.put(tracks), 'hasMore': bool(result['hasMore']) and pages[name] < 10}
+
+        if source != 'all':
+            return fetch(source)  # Preserve the pre-aggregation QQ API's errors.
+        results, sources = {}, {}
+        # A slow/failed source neither holds QQ's lock nor discards its results.
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix='talk-search') as pool:
+            futures = {name: pool.submit(fetch, name) for name in pages}
+            for name, future in futures.items():
+                try:
+                    results[name] = future.result()
+                    sources[name] = {'status': 'ready', 'page': pages[name], 'hasMore': results[name]['hasMore'],
+                                     'count': len(results[name]['tracks'])}
+                except PlayerError as exc:
+                    sources[name] = {'status': 'error', 'page': pages[name], 'code': exc.code, 'hasMore': False}
+                except Exception:
+                    sources[name] = {'status': 'error', 'page': pages[name], 'code': 'PROVIDER_UNAVAILABLE', 'hasMore': False}
+        interleaved = []
+        for index in range(max((len(row['tracks']) for row in results.values()), default=0)):
+            for name in selected:
+                if name in results and index < len(results[name]['tracks']):
+                    interleaved.append(results[name]['tracks'][index])
+        return {'tracks': interleaved, 'hasMore': any(row.get('hasMore') for row in sources.values()),
+                'sources': sources, 'partial': any(row['status'] == 'error' for row in sources.values())}
 
     def play(self, key):
         track = self.library.get(key)
-        if not self.network.acquire(blocking=False):
+        key = track['key']
+        provider = self.provider(track['source'])
+        network = self.network_lock(track['source'])
+        if not network.acquire(blocking=False):
             raise PlayerError('BUSY', 409)
         with self.lock:
             for old_id, old in list(self.jobs.items()):
-                if time.time() - old['created'] > 600:
+                if old['status'] != 'loading' and time.time() - old['created'] > 600:
                     self.jobs.pop(old_id, None)
-            if len(self.jobs) >= 16:
-                oldest = next(iter(self.jobs))
+            while len(self.jobs) >= 16:
+                # A slower independent provider may still own an older job.
+                # Never evict a worker's result slot while it is running.
+                oldest = next((jid for jid, job in self.jobs.items() if job['status'] != 'loading'), None)
+                if oldest is None:
+                    network.release()
+                    raise PlayerError('BUSY', 409)
                 self.jobs.pop(oldest)
             jid = secrets.token_hex(16)
-            self.jobs[jid] = {'id': jid, 'status': 'loading', 'created': time.time(), 'key': key}
+            self.jobs[jid] = {'id': jid, 'status': 'loading', 'created': time.time(), 'key': key, 'provider': track['source']}
 
         def task():
             try:
-                result = self.bridge.run('source', track=track)
-                self.library.put([result['track']], used=True)
+                result = provider.run('source', track=track)
+                if clean_track(result['track'])['key'] != key:
+                    raise PlayerError('TRACK_IDENTITY_MISMATCH', 502)
+                actual = self.library.put([result['track']], used=True)[0]
                 with self.lock:
                     token = secrets.token_urlsafe(32)
                     self.media = {t: row for t, row in self.media.items()
                                   if row['expires'] > time.time() and row['path'].is_file()}
                     if len(self.media) >= 24:
                         self.media.pop(next(iter(self.media)))
-                    self.media[token] = {'path': result['path'], 'expires': time.time() + 12 * 3600}
-                    self.jobs[jid].update(status='ready', track=result['track'],
+                    self.media[token] = {'path': result['path'], 'expires': time.time() + 12 * 3600,
+                                         'provider': track['source']}
+                    self.jobs[jid].update(status='ready', track=actual,
                                           mediaUrl='/media/' + token,
-                                          source={'format': 'mp3', 'quality': '128',
+                                          source={'provider': track['source'], 'format': 'mp3', 'quality': '128',
                                                   'fullDecodeVerified': bool(
                                                       result['media'].get('decoderVerified') and
                                                       result['media'].get('completeMp3FrameCoverage') and
@@ -143,7 +221,7 @@ class Player:
                 with self.lock:
                     self.jobs[jid].update(status='error', code='SOURCE_UNAVAILABLE')
             finally:
-                self.network.release()
+                network.release()
 
         threading.Thread(target=task, daemon=True, name='talk-source').start()
         return {'job': jid}
@@ -161,8 +239,8 @@ class Player:
                 if self.bridge.auth_status == 'done':
                     # A new account must not inherit old in-memory media grants.
                     with self.lock:
-                        self.media.clear()
-                        self.jobs.clear()
+                        self.media = {token: row for token, row in self.media.items() if row.get('provider', 'qq') != 'qq'}
+                        self.jobs = {jid: row for jid, row in self.jobs.items() if row.get('provider', 'qq') != 'qq'}
             except Exception:
                 self.bridge.qr = None
                 self.bridge.auth_status = 'failed'
@@ -192,6 +270,7 @@ class Player:
 
     def lyrics(self, key, refresh=False):
         track = self.library.get(key)
+        key = track['key']
         if type(refresh) is not bool:
             raise PlayerError('INVALID_INPUT')
         cached = self.insights.get('lyrics', key)
@@ -201,15 +280,16 @@ class Player:
             for job in self.extra_jobs.values():
                 if job['kind'] == 'lyrics' and job['key'] == key and job['status'] == 'loading':
                     return {'job': job['id'], 'status': 'loading'}, 202
-        if not self.network.acquire(blocking=False):
+        network = self.network_lock(track['source'])
+        if not network.acquire(blocking=False):
             raise PlayerError('BUSY', 409)
         try:
             job, _ = self.extra_job('lyrics', key)
         except Exception:
-            self.network.release(); raise
+            network.release(); raise
         def task():
             try:
-                result = self.bridge.run('lyrics', track=track)
+                result = self.provider(track['source']).run('lyrics', track=track)
                 parsed = lyric_document(track, result['lyric'], result.get('translation'))
                 saved = self.insights.put('lyrics', key, parsed)
                 with self.lock:
@@ -219,12 +299,13 @@ class Player:
             except Exception:
                 with self.lock: job.update(status='error', code='LYRICS_UNAVAILABLE')
             finally:
-                self.network.release()
+                network.release()
         threading.Thread(target=task, daemon=True, name='talk-lyrics').start()
         return {'job': job['id'], 'status': 'loading'}, 202
 
     def analyze(self, key, refresh=False):
         track = self.library.get(key)
+        key = track['key']
         if type(refresh) is not bool:
             raise PlayerError('INVALID_INPUT')
         cached = self.insights.get('analysis', key)
@@ -238,39 +319,50 @@ class Player:
             raise PlayerError('ANALYSIS_UNAVAILABLE', 503)
         if not self.analysis_slot.acquire(blocking=False):
             raise PlayerError('ANALYSIS_BUSY', 409)
-        if not self.network.acquire(blocking=False):
+        network = self.network_lock(track['source'])
+        if not network.acquire(blocking=False):
             self.analysis_slot.release()
             raise PlayerError('BUSY', 409)
         try:
             job, _ = self.extra_job('analysis', key)
+            with self.lock: job['phase'] = 'audio'
         except Exception:
-            self.network.release(); self.analysis_slot.release(); raise
+            network.release(); self.analysis_slot.release(); raise
         def task():
             network_held = True
             try:
                 with analysis_runner.work_directory(self.private) as workspace:
-                    authorized = self.bridge.run('source', track=track)
+                    authorized = self.provider(track['source']).run('source', track=track)
                     digest = authorized['media']['sha256']
                     copied = analysis_runner.copy_authorized(authorized['path'], workspace, digest)
                     # Inference cannot block normal playback/search/lyric authorization.
-                    self.network.release(); network_held = False
+                    network.release(); network_held = False
+                    with self.lock: job['phase'] = 'model'
                     result = analysis_runner.analyze(copied, workspace, track, digest)
                     saved = self.insights.put('analysis', key, result)
-                with self.lock: job.update(status='ready', analysis=saved)
+                with self.lock: job.update(status='ready', phase='done', analysis=saved)
             except PlayerError as error:
-                with self.lock: job.update(status='error', code=error.code)
+                with self.lock: job.update(status='error', phase='error', code=error.code)
             except Exception:
-                with self.lock: job.update(status='error', code='ANALYSIS_FAILED')
+                with self.lock: job.update(status='error', phase='error', code='ANALYSIS_FAILED')
             finally:
-                if network_held: self.network.release()
+                if network_held: network.release()
                 self.analysis_slot.release()
         threading.Thread(target=task, daemon=True, name='talk-analysis').start()
         return {'job': job['id'], 'status': 'loading'}, 202
 
     def cover(self, mid):
-        if not valid_mid(mid):
-            raise PlayerError('NOT_FOUND', 404)
-        target = self.covers / (mid + '.jpg')
+        if re.fullmatch(r'netease/[1-9][0-9]{0,15}', mid):
+            track = self.library.get(mid.replace('/', ':'))
+            if not track.get('albumArt'):
+                return (WEB / 'assets/cover-default.svg').read_bytes(), 'image/svg+xml'
+            url = 'https://p1.music.126.net' + track['albumArt'] + '?param=300y300'
+            target = self.covers / ('netease-' + str(track['songId']) + '.jpg')
+        else:
+            if not valid_mid(mid):
+                raise PlayerError('NOT_FOUND', 404)
+            url = 'https://y.gtimg.cn/music/photo_new/T002R300x300M000' + mid + '.jpg'
+            target = self.covers / (mid + '.jpg')
         if target.is_file() and target.stat().st_size <= 1024**2:
             return target.read_bytes(), 'image/jpeg'
         if not self.cover_slots.acquire(blocking=False):
@@ -278,7 +370,7 @@ class Player:
         try:
             opener = urllib.request.build_opener(NoRedirect())
             request = urllib.request.Request(
-                'https://y.gtimg.cn/music/photo_new/T002R300x300M000' + mid + '.jpg',
+                url,
                 headers={'User-Agent': 'talk-local/1.0'})
             with opener.open(request, timeout=8) as response:
                 if response.status != 200:
@@ -369,7 +461,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Security-Policy',
                          "default-src 'none'; script-src 'self'; style-src 'self'; "
                          "img-src 'self'; media-src 'self'; connect-src 'self'; "
-                         "font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+                         "font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -403,43 +495,52 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self.check_request()
-            path = urllib.parse.urlsplit(self.path).path
+            path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+            if path == '/api/extensions/score-lab' or path.startswith('/extensions/score-lab/'):
+                return self.app.scores.get(self, path)
             if path == '/api/health':
                 return self.payload({'ok': True, 'instance': self.app.instance})
             if path == '/api/library':
                 return self.payload(self.app.snapshot())
             if path == '/api/features':
-                return self.payload({'listening': True, 'lyrics': True, 'analysis': analysis_runner.ready()})
+                return self.payload({'listening': True, 'lyrics': True, 'analysis': analysis_runner.ready(), 'aggregation': True,
+                                     'desktopLyrics': True, 'scoreLab': True})
             if path == '/api/providers':
                 return self.payload({'providers': self.app.providers.describe()})
             if path == '/api/stats':
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 try: days = int(query.get('days', ['7'])[0])
                 except (ValueError, TypeError): raise PlayerError('INVALID_INPUT') from None
-                return self.payload(self.app.history.summary(days))
+                return self.payload(self.app.history.summary(days, source=query.get('source', ['all'])[0]))
             if path == '/api/history':
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 try: offset = int(query.get('offset', ['0'])[0])
                 except (ValueError, TypeError): raise PlayerError('INVALID_INPUT') from None
-                return self.payload(self.app.history.recent(offset=offset))
-            match = re.fullmatch(r'/api/(lyrics|analysis)/([A-Za-z0-9]{10,32})(/export)?', path)
+                return self.payload(self.app.history.recent(offset=offset, source=query.get('source', ['all'])[0]))
+            match = re.fullmatch(r'/api/(lyrics|analysis)/((?:qq:[A-Za-z0-9]{10,32}|netease:[1-9][0-9]{0,15}|[A-Za-z0-9]{10,32}))(/export)?', path)
             if match:
                 kind, key, export = match.groups()
+                key = self.app.library.get(key)['key']
                 cached = self.app.insights.get(kind, key)
                 if not export:
-                    if not cached:
-                        with self.app.lock:
-                            pending = next((row for row in self.app.extra_jobs.values()
-                                            if row['key'] == key and row['kind'] == kind and row['status'] == 'loading'), None)
-                        if pending:
-                            return self.payload({'status': 'loading', 'job': pending['id'], kind: None})
+                    with self.app.lock:
+                        relevant = [dict(row) for row in self.app.extra_jobs.values()
+                                    if row['key'] == key and row['kind'] == kind]
+                    pending = next((row for row in relevant if row['status'] == 'loading'), None)
+                    if pending:
+                        return self.payload({'status': 'loading', 'job': pending['id'],
+                                             'phase': pending.get('phase'), kind: cached})
+                    latest = max(relevant, key=lambda row: row['created'], default=None)
+                    if not cached and latest and latest['status'] == 'error':
+                        return self.payload({'status': 'error', 'job': latest['id'],
+                                             'code': latest['code'], kind: None})
                     return self.payload({'status': 'ready' if cached else 'missing', kind: cached})
                 if kind != 'lyrics' or not cached or not cached['available']:
                     raise PlayerError('LYRICS_NOT_FOUND', 404)
                 data = cached['lrc'].encode('utf-8')
                 extension = 'txt' if cached['format'] == 'text' else 'lrc'
                 self.headers_out(200, 'text/plain; charset=utf-8', len(data),
-                                 {'Content-Disposition': f'attachment; filename="talk-{key}.{extension}"'})
+                                 {'Content-Disposition': f'attachment; filename="talk-{key.replace(":", "-")}.{extension}"'})
                 if self.command != 'HEAD': self.wfile.write(data)
                 return
             if path == '/api/account':
@@ -470,9 +571,14 @@ class Handler(BaseHTTPRequestHandler):
             files = {'/': ('index.html', 'text/html; charset=utf-8'),
                      '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
                      '/listening.mjs': ('listening.mjs', 'text/javascript; charset=utf-8'),
+                     '/aggregation.mjs': ('aggregation.mjs', 'text/javascript; charset=utf-8'),
                      '/window-controls.mjs': ('window-controls.mjs', 'text/javascript; charset=utf-8'),
+                     '/desktop-lyrics.mjs': ('desktop-lyrics.mjs', 'text/javascript; charset=utf-8'),
+                     '/score-extension.mjs': ('score-extension.mjs', 'text/javascript; charset=utf-8'),
+                     '/score-extension.css': ('score-extension.css', 'text/css; charset=utf-8'),
                      '/styles.css': ('styles.css', 'text/css; charset=utf-8'),
                      '/assets/brand.svg': ('assets/brand.svg', 'image/svg+xml'),
+                     '/assets/usic.png': ('assets/usic.png', 'image/png'),
                      '/assets/cover-default.svg': ('assets/cover-default.svg', 'image/svg+xml')}
             if path not in files:
                 raise PlayerError('NOT_FOUND', 404)
@@ -523,10 +629,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             self.check_request(mutation=True)
+            path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+            if path in ('/api/extensions/score-lab', '/api/extensions/score-lab/reload', '/api/scores/track') or path.startswith('/extensions/score-lab/'):
+                return self.app.scores.post(self, path)
             data = self.body()
-            path = urllib.parse.urlsplit(self.path).path
+            path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
             if path == '/api/search':
-                return self.payload(self.app.search(data.get('query'), data.get('page', 1)))
+                return self.payload(self.app.search(data.get('query'), data.get('page', 1),
+                                                    data.get('source', 'qq'), data.get('pages')))
             if path == '/api/play':
                 return self.payload(self.app.play(data.get('key')), 202)
             if path == '/api/listen':
@@ -556,7 +666,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.app.bridge.qr = None
                 return self.payload({'ok': True})
             elif path == '/api/close':
-                if self.app.network.locked() or self.app.analysis_slot.locked():
+                if self.app.busy():
                     raise PlayerError('BUSY', 409)
                 self.payload({'ok': True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -629,10 +739,12 @@ def main():
     finally:
         if timer:
             timer.cancel()
+        if app._score_extension:
+            app._score_extension.close()
         app.bridge.auth_cancel = True
         server.server_close()
         # In-flight daemon SDK workers must not race a deliberately closed SQLite connection.
-        if not app.network.locked() and not app.analysis_slot.locked():
+        if not app.busy():
             app.library.close()
     return 0
 

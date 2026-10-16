@@ -1,0 +1,35 @@
+小黄花 · 桌面歌词
+
+使用
+重新打开 Electron 后，点击底栏详情右侧的屏幕图标启用。普通网页／手机页面隐藏此入口。
+歌词透明置顶，可拖动歌词或工具条左侧拖柄移动。当前句＋下一句；悬停才显示控制，不放说明段落。
+工具条：上一首、播放／暂停、下一首、字号减／加、锁定、关闭。
+锁定后鼠标穿透，不挡其他软件。Ctrl+Alt+L 切换锁定；也可在主播放器的桌面歌词图标上右键解锁。若快捷键被其他软件占用，右键解锁仍有效。
+位置和字号保存在本机 Electron profile 的 desktop-lyrics.json；不会提交 Git，不保存可见／锁定状态、账号或音源。每次启动默认关闭。
+最小化主窗口时歌词仍在；关歌词窗不影响播放，关主窗会销毁歌词窗、注销快捷键并按原流程停止后台。
+
+歌词范围
+复用 QQ／网易云原有歌词提取接口、源标识和缓存，跟随正在播放的歌曲，不受详情面板正在查看哪首歌影响。
+按真实 LRC／规范化 QRC 行时间戳同步；暂停和向前／向后拖进度立即重算。不伪装逐字识别或为纯文本猜时间轴。
+歌词无时间轴时静态显示前两行；无歌词时显示歌名及无歌词状态；加载失败显示简短状态。重新关闭／开启可重试，详情页重新提取的结果会立即同步。
+新音源下载优先，歌词请求不争抢其 provider 锁。歌词获取有界等待，切歌／关闭后丢弃迟到结果。
+
+实现
+desktop/lyrics-window.cjs：独立无边框透明窗口、置顶、点击穿透、原窗关闭前清理、显示器变化归位、固定 IPC allowlist。
+desktop/lyrics-preload.cjs、desktop/lyrics/*：仅显示有界文本和固定控制，不含音频元素、账号 API、网络请求或任意 IPC。
+desktop/preload.cjs：主页面的固定歌词接口；发布文本只能来自拥有者主 frame。
+web/desktop-lyrics.mjs：可取消歌词获取、时间轴计算、状态同步；web/app.js 只接原 audio 和原暂停／切歌方法。
+隔离歌词 session 只允许加载三个固定本地资源；禁网络、其他文件、新窗口、webview 和权限；保留 sandbox、contextIsolation、webSecurity，Node 关闭。
+源授权／下载方式、QQ 与网易云 provider 代码未因本功能改变，不重复发播放或听歌统计。
+
+验收与边界
+运行 scripts/test.ps1：Python、原有播放／统计／聚合／桌面，以及新增歌词时间轴、竞态、慢音源优先和 IPC 安全测试。
+node scripts/verify_lyrics.cjs：真实本机 Electron 和真实本地 HTTP／歌词任务，独立 profile／资料库，生成的静音 WAV 与自写歌词；不会读取生产账号、播放真实歌曲或打开可见 QA 窗口。结果在 output/desktop-lyrics-qa.json，截图在 output/playwright/。
+真实 Electron 验证：QQ／网易云两种源键的合成测试路径、前后拖进度、原播放器暂停／切歌、静态／空歌词、锁定及主窗右键恢复、字号／位置记忆、关歌词不关主窗、关主窗销毁歌词和注销快捷键、后台退出。
+合成测试不是在线服务或真实音源再验收。生产应用未被强制重启；完整验证记录以当次 JSON 为准。
+仅当前 Windows 源码运行版验证。不同桌面系统、独占全屏游戏或系统安全桌面的置顶行为不作保证。
+
+Electron 官方参考（核查于 2026-10-13）
+透明／置顶窗口：https://www.electronjs.org/docs/latest/api/browser-window
+拖动与鼠标穿透：https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions
+后台节流：https://www.electronjs.org/docs/latest/api/web-contents

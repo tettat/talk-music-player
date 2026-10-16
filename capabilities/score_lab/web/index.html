@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>谱室 · 小黄花</title>
+  <link rel="icon" href="./favicon.ico">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./embedded.css">
+  <script src="./vendor/abcjs-basic-min.js" defer></script>
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m9 5-5 4 5 4M4 9h9a7 7 0 0 1 0 14"/><text x="10" y="18">5</text></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="m15 5 5 4-5 4M20 9h-9a7 7 0 0 0 0 14"/><text x="8" y="18">5</text></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4M21 6H7a4 4 0 0 0-4 4m4 12-4-4 4-4m-4 4h14a4 4 0 0 0 4-4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24"><path d="M9 17V5l12-2v12M9 9l12-2"/><ellipse cx="5.5" cy="18.5" rx="3.5" ry="2.5"/><ellipse cx="17.5" cy="16.5" rx="3.5" ry="2.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H5v20h14V7ZM14 2v6h5M8 13h8M8 17h6"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 10v4m4-7v10m5-14v18m5-15v12m4-8v4"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+  </svg>
+  <aside class="sidebar">
+    <a class="brand" href="./" aria-label="谱室首页"><img src="./flower.png" alt="" width="42" height="42"><span>谱室<small>小黄花 · Usic</small></span></a>
+    <div class="library-heading"><span>片段</span><span id="sample-count">—</span></div>
+    <nav id="library" aria-label="音频片段"></nav>
+    <button class="import-button" id="import-button"><svg><use href="#i-plus"/></svg>导入音频</button>
+    <div class="sidebar-foot"><span class="local-dot"></span>本机处理<span class="model-name">SheetSage2</span></div>
+  </aside>
+  <main>
+    <header class="topbar"><button class="icon-button embedded-back" id="back-to-scores" aria-label="返回谱室" title="返回谱室" hidden>←</button><div class="breadcrumb"><svg><use href="#i-wave"/></svg><span>音频</span><svg class="arrow"><use href="#i-arrow"/></svg><span>乐谱</span></div><span class="edition">SCORE LAB <span>01</span></span></header>
+    <section class="song-header">
+      <div><div class="eyebrow" id="source-label">LOCAL SESSION</div><h1 id="song-title">谱室</h1><div class="song-meta"><span id="song-artist"></span><span id="clip-range"></span></div></div>
+      <div class="export-wrap"><button class="export-button" id="export-button" disabled aria-expanded="false" aria-controls="export-menu"><svg><use href="#i-download"/></svg>导出</button><div id="export-menu" class="export-menu" hidden></div></div>
+    </section>
+    <div class="facts" id="facts"></div>
+    <section class="workspace" aria-label="识别结果">
+      <div class="workspace-toolbar"><div class="segmented view-tabs" role="group" aria-label="乐谱视图"><button id="view-score" class="active" aria-pressed="true">五线谱</button><button id="view-roll" aria-pressed="false">音符</button></div><button id="edit-toggle" class="edit-toggle" aria-pressed="false" hidden>编辑</button><div class="legend"><span><i class="vocal"></i>人声旋律</span><span><i class="instrumental"></i>器乐旋律</span><span><i class="chords"></i>和弦</span></div></div>
+      <div class="editor-toolbar" id="editor-toolbar" hidden><span id="edit-selection">选择音符</span><select id="edit-chord-members" aria-label="和弦音符" hidden></select><button id="edit-down" title="降半音" aria-label="降半音" disabled>♭</button><button id="edit-up" title="升半音" aria-label="升半音" disabled>♯</button><button id="edit-undo" title="撤销" aria-label="撤销" disabled>↶</button><button id="edit-redo" title="重做" aria-label="重做" disabled>↷</button><button id="edit-source-toggle" aria-expanded="false">ABC</button><button id="edit-discard">还原</button><button id="edit-save" disabled>保存</button><span id="edit-status" role="status"></span></div>
+      <textarea id="edit-source" class="edit-source" spellcheck="false" aria-label="ABC 音高编辑" hidden></textarea>
+      <div class="score-scroll" id="score-scroll"><div id="score" aria-label="五线谱"></div></div>
+      <div class="roll-scroll" id="roll-scroll" hidden><div id="roll-space"><canvas id="piano-roll" aria-label="原始时间轴上的识别音符"></canvas></div></div>
+      <div class="empty-state" id="empty-state"><svg><use href="#i-note"/></svg><span id="empty-message">正在读取本机片段…</span></div>
+      <div class="score-foot"><span id="score-caption">SheetSage2</span><span id="measure-position"></span></div>
+    </section>
+    <section class="transport" aria-label="回放控制">
+      <div class="compare-row"><div class="segmented audio-tabs" role="group" aria-label="音源对照"><button id="mode-original" class="active" aria-pressed="true"><svg><use href="#i-wave"/></svg>原曲</button><button id="mode-piano" aria-pressed="false"><svg><use href="#i-note"/></svg>钢琴回放</button></div><div class="parts" role="group" aria-label="回放声部"><button data-part="mix" class="active" aria-pressed="true">全部</button><button data-part="vocal" aria-pressed="false">人声旋律</button><button data-part="instrumental" aria-pressed="false">器乐旋律</button><button data-part="chords" aria-pressed="false">和弦</button></div></div>
+      <div class="timeline" id="timeline"><canvas id="waveform" aria-hidden="true"></canvas><div id="wave-cursor"></div><input id="seek" type="range" min="0" max="30" value="0" step="0.01" aria-label="播放进度"><div id="chord-lane" aria-hidden="true"></div></div>
+      <div class="time-row"><span id="elapsed">00:00</span><span id="total">00:30</span></div>
+      <div class="controls"><div class="control-left"><button id="repeat" class="icon-button" aria-label="循环播放" aria-pressed="false" title="循环播放"><svg><use href="#i-repeat"/></svg></button><select id="speed" aria-label="回放速度"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option></select></div><div class="play-controls"><button id="back" class="icon-button" aria-label="后退五秒" title="后退五秒"><svg><use href="#i-back"/></svg></button><button id="play" class="play-button" disabled aria-label="播放" title="播放 / 暂停（空格）"><svg><use href="#i-play"/></svg></button><button id="next" class="icon-button" aria-label="前进五秒" title="前进五秒"><svg><use href="#i-next"/></svg></button></div><div class="volume"><svg><use href="#i-sound"/></svg><input id="volume" type="range" min="0" max="1" step="0.01" value="0.7" aria-label="音量"></div></div>
+    </section>
+  </main>
+  <dialog id="import-dialog"><form id="import-form"><div class="dialog-heading"><h2>导入音频</h2><button class="icon-button" id="close-import" type="button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div><label class="file-picker"><svg><use href="#i-file"/></svg><span id="file-label">选择音频</span><small>MP3 · WAV · FLAC · OGG</small><input id="file-input" type="file" accept=".mp3,.wav,.flac,.ogg,.aif,.aiff" required></label><label class="offset-label" for="offset">片段起点 <span>秒</span></label><input id="offset" type="number" min="0" max="86400" step="1" value="0" required><div class="dialog-bottom"><select id="clip-length" aria-label="识别长度"><option value="30">30 秒</option><option value="90">90 秒</option><option value="full">整首</option></select><button class="primary-button" id="submit-import" type="submit">识别<svg><use href="#i-arrow"/></svg></button></div></form></dialog>
+  <div id="toast" role="status" hidden></div>
+  <audio id="audio" preload="metadata"></audio>
+</body>
+</html>

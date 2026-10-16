@@ -1,4 +1,4 @@
-"""Provider contracts. QQ is the only implemented provider in this release."""
+"""Explicit providers. A selected recording never silently changes its source."""
 from __future__ import annotations
 
 from typing import Protocol
@@ -24,7 +24,7 @@ class ProviderRegistry:
 
     def describe(self):
         return [{'id': p.id, 'name': p.name,
-                 'capabilities': ['search', 'play', 'lyrics', 'login']}
+                 'capabilities': getattr(p, 'capabilities', ['search', 'play', 'lyrics', 'login'])}
                 for p in self.providers.values()]
 
     def get(self, provider_id):

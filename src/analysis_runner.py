@@ -70,6 +70,10 @@ def analyze(source, workspace, track, expected_sha):
         child = subprocess.run([str(PYTHON), '-I', '-B', str(SCRIPT), '--input', str(source),
                                 '--output', str(output), '--start', str(start), '--seconds', str(seconds)],
                                cwd=str(ROOT), env=env, shell=False, capture_output=True, timeout=180,
+                               # Electron's owner watcher blocks reading the backend's stdin pipe.
+                               # Inheriting that same synchronous Windows pipe can deadlock Python
+                               # during stdio initialization, before the model even imports.
+                               stdin=subprocess.DEVNULL,
                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except subprocess.TimeoutExpired:
         raise PlayerError('ANALYSIS_TIMEOUT', 504) from None

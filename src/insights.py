@@ -24,7 +24,7 @@ class InsightStore:
             ''')
 
     def get(self, kind, key):
-        self.library.get(key)
+        key = self.library.get(key)['key']
         table = {'lyrics': 'talk_lyrics', 'analysis': 'talk_analysis'}.get(kind)
         if table is None:
             raise PlayerError('INVALID_INPUT')
@@ -33,11 +33,12 @@ class InsightStore:
         return json.loads(row[0]) if row else None
 
     def put(self, kind, key, value):
-        self.library.get(key)
+        track = self.library.get(key)
+        key = track['key']
         table = {'lyrics': 'talk_lyrics', 'analysis': 'talk_analysis'}.get(kind)
         if table is None or not isinstance(value, dict):
             raise PlayerError('INVALID_INPUT')
-        value = {**value, 'key': key, 'updatedAt': self.clock()}
+        value = {**value, 'key': key, 'source': track['source'], 'updatedAt': self.clock()}
         try:
             data = json.dumps(value, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError):
@@ -57,7 +58,7 @@ def lyric_document(track, original, translation=None):
     parsed = normalize_lyrics(original, track['duration'])
     translated = normalize_lyrics(translation or '', track['duration'])
     digest = hashlib.sha256((parsed['lrc'] + '\0' + translated['lrc']).encode('utf-8')).hexdigest()
-    return {**parsed, 'translation': translated, 'source': 'qq',
+    return {**parsed, 'translation': translated, 'source': track.get('source', 'qq'),
             'songId': track['songId'], 'sha256': digest,
             'available': bool(parsed['lines'])}
 

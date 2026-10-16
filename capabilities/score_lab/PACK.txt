@@ -1,0 +1,108 @@
+Usic 谱室能力包 0.1.0 / Windows x64 CPU
+======================================
+仅限个人、非商业测试。本次未授权公开发包、上传、计费或商业使用。
+本包不是播放器安装器，不包含个人歌曲、账号、数据库、缓存或运行日志。
+
+使用和目录契约
+--------------
+在主程序能力页通过原生“选择能力包文件夹”，选择含 score-pack.json 的目录。
+schema=1；files 将除 manifest 自身以外的全部交付文件逐个绑定 SHA-256。
+python、sheetRepo、baseRepo、assetsDir 都是相对包根的 POSIX 路径。
+native 按应用自己的 model.lock.json / render-assets.lock.json 校验全部 pins，
+然后在应用数据目录生成本机 bundle-config.json。不要把绝对路径配置写进包。
+搬动能力包后需重新选择文件夹；不要编辑 manifest 或把歌曲/输出放入包。
+
+  score-pack.json
+  dependencies.lock.json        全部保留的 installed 第三方版本、文件和许可位置
+  python-runtime.lock.json       官方 Python 来源和 SHA、隔离/DLL 策略
+  python/python.exe              官方 CPython 3.12.10 embeddable x64
+  python/python312.zip           该官方包的标准库，不来自构建机
+  python/Lib/site-packages/       经原安装 RECORD 验证的第三方文件
+  models/sheetsage2/             model.lock.json 中的全部文件 + LICENSE/README/notices
+  models/mert_base/              model.lock.json 中的全部文件 + LICENSE/notices
+  render-assets/                 render-assets.lock.json 中的全部文件
+  licenses/                      补充许可和归属
+
+运行接口由主应用持有；能力包不复制一份应用代码：
+  <pack>/python/python.exe -I -B <app>/capabilities/score_lab/entry.py worker
+      --config <本机bundle-config.json> --sample <新id>
+      --audio <本地音频.wav> --seconds 30
+  同一入口 worker ... --sample <已有id> --notation-only
+  同一入口 editing ...（主应用须提供 editing 模块及其参数契约）
+运行所需的路径由选择后的本机配置解析；不依赖启动时 cwd、宿主 Python
+或 PYTHONPATH。识谱/编辑/输出数据全部写在本机配置的独立 dataDir。
+
+隔离及 Windows DLL 策略
+----------------------
+python312._pth 的路径行只有 python312.zip、.、Lib/site-packages；这里的
+“.” 是解释器目录，不是当前工作目录；末行 import site 是受控初始化。
+没有仓库路径、editable hook、第三方 .pth、direct_url.json、pyvenv.cfg、
+pip、用户 site 或原环境字节码。应用以 -I -B 运行 app-owned entry。
+sitecustomize.py 不添加任何 sys.path 项；禁用字节码/用户 site，将 torch
+用到的 sysconfig userbase 固定为本机包内 runtime，避免从用户目录找 DLL；
+仅向 os.add_dll_directory 注册明确的包内 runtime/torch/torchaudio/
+numpy/scipy/libsndfile 目录并保存句柄。不改第三方源码、不执行原 .pth。
+原安装 RECORD 中的 console launchers 会含原 Python 路径，因此不随包复制。
+交付 RECORD 仅保留实际文件及新哈希，不含被排除文件的悬空路径。
+music21 的正式 __init__ 依赖 test.testRunner 及该包导入的 test_* 模块，
+因此保留这个必要源码命名空间；它不是测试输出，仍排除其中所有字节码/日志。
+
+前提：Windows x64，Microsoft Visual C++ 2015–2022 x64 Redistributable
+（msvcp140.dll）。没有从 System32 私自搬运微软系统 DLL；官方 Python
+附带的 vcruntime DLL 和许可保留。无需安装宿主 Python、pip、Node 或 venv
+来运行能力包。未在无 VC runtime 的干净 Windows 虚拟机上验收。
+
+构建、磁盘及验证
+----------------
+只使用标准库运行构建脚本，使用一个 Windows x64 Python 3.12 作为构建工具：
+  <构建Python3.12> -I -B capabilities/score_lab/build_pack.py --smoke
+首次若缺少补充许可，显式加 --fetch-licenses；仅获取两个固定版本/哈希的
+上游许可文本，不下载模型、安装包或上传任何内容。
+  <构建Python3.12> -I -B capabilities/score_lab/build_pack.py --verify-only
+源配置只供构建机读取，绝不复制进交付 manifest。
+构建脚本只读官方缓存 ZIP、源模型/资源及 modelenv site-packages；
+不复制 venv exe/配置，不改变原模型、资源或任何已有 sample。
+只有一份 payload：完成复制后在同一磁盘 rename 到含中文/空格路径验收，
+最后 rename 到 dist/Usic-ScoreLab-0.1.0-windows-x64；不制作第二份完整备份。
+默认不生成 ZIP，预留 1 GiB 空闲；不把外部输出目录递归清空。
+
+验证包括：官方 runtime hash、所有模型/资源 pins、每个复制的 RECORD hash、
+所有交付文件 hash、隐藏的 ZIP 成员和 DLL 等全字节私有设备路径扫描；
+重定位且 cwd/PYTHONHOME/PYTHONPATH 被故意污染时的依赖导入与 CPU 运算；
+app-owned entry worker --help；worker.verify_model / verify_assets；
+真实 desktop/score-bundle.cjs verifyBundle（所有文件、全部模型/资源 pins）。
+--smoke 用新合成 30 秒音调真正推理，不读取原五个样本或个人歌曲；
+其临时应用、输入、结果、配置、缓存和日志一律清理。不是识别准确率验证。
+结果只保留去路径化摘要到 output/score-pack-build/build-result.json 和
+output/outsource/usic-score-pack-result.json；最终移动后再次检查依赖导入。
+已有交付目录默认拒绝覆盖；需要重建时先人工确认只清理这次自有产物。
+若完整 staging 已写好 manifest，但运行验收失败，可 --resume-validation：
+先完整重验原 staging，只补充新策略所需的 RECORD 文件，再重写自有文档/
+清单并重新验收；不替换已有模型/第三方内容，也不产生第二份完整 payload。
+
+许可证、来源和限制
+------------------
+SheetSage2 与 MERT-v2-FullSong：m-a-p，CC BY-NC 4.0，见各模型 LICENSE。
+  https://huggingface.co/m-a-p/SheetSage2
+  https://huggingface.co/m-a-p/MERT-v2-FullSong
+  固定模型代码/配置/权重见 model.lock.json；这些模型代码会被执行。
+abcjs 6.6.3：Paul Rosen 等，MIT；render-assets/LICENSE.abcjs、
+licenses/abcjs-MIT.txt。https://github.com/paulrosen/abcjs
+FluidR3 GM 钢琴：Frank Wen，CC BY 3.0 US；Paul Rosen 的 midi-js-soundfonts
+预渲染采样，逐文件版本/hash 见 render-assets.lock.json；见
+render-assets/soundfonts/ATTRIBUTION.md、licenses/piano-attribution.txt。
+https://github.com/paulrosen/midi-js-soundfonts
+DejaVu Sans 2.37：见 render-assets/LICENSE.font。
+Python：PSF 及随附组件许可，见 python/LICENSE.txt。
+第三方包及传递/内嵌依赖：保留每个安装包自带 LICENSE/LICENCE/COPYING/
+NOTICE，包括 setuptools vendor notices、torch NOTICE、SoundFile/libsndfile
+COPYING、字体/公共 corpus 许可；确切位置见 dependencies.lock.json。
+pretty_midi 0.2.10 的安装 metadata 缺少全文，补入对应上游版本 MIT 许可；
+tokenizers 0.20.3 同理补入上游版本 Apache 2.0 许可，URL/hash 记录在锁内。
+本包的构建/引导代码属于 Usic GPL-3.0-or-later 集成工程；不改模型或依赖许可。
+
+仅验收 Windows x64 CPU/FP32。GPU、干净 VM、安装器、完整 UI 和 editing
+行为不在此次能力包验收范围内。Python 3.12.10 是历史固定运行时，不是
+当前安全版本承诺；公开发布前必须升级/复审，完整 Sigstore 信任链验签亦待做。
+SHA 清单不是签名，不证明发布者身份，也不能让恶意包变得可信。
+本次只做离线目录交付；没有公开上传、计费、commit 或系统级安装。

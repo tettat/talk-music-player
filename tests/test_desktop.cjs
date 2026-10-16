@@ -6,11 +6,50 @@ const os = require('node:os');
 const path = require('node:path');
 const {EventEmitter} = require('node:events');
 const vm = require('node:vm');
+const {spawnSync} = require('node:child_process');
 const {loadConfig} = require('../desktop/config.cjs');
 const {validateReady} = require('../desktop/backend.cjs');
 const {allowedURL, windowPreferences} = require('../desktop/security.cjs');
 const {desktopLaunchOptions} = require('../desktop/launch.cjs');
 const {WINDOW_COMMAND, WINDOW_STATE, bindWindowControls} = require('../desktop/window-controls.cjs');
+
+test('Usic branding keeps package metadata consistent and includes real transparent icon assets', () => {
+  const root = path.resolve(__dirname, '..');
+  const pkg = require('../package.json'), lock = require('../package-lock.json');
+  assert.equal(pkg.name, 'usic'); assert.equal(pkg.productName, '小黄花 · Usic');
+  assert.equal(lock.name, pkg.name); assert.equal(lock.packages[''].name, pkg.name);
+  const png = fs.readFileSync(path.join(root, 'web/assets/usic.png'));
+  assert.equal(png.subarray(1, 4).toString(), 'PNG');
+  assert.equal(png.readUInt32BE(16), 256); assert.equal(png.readUInt32BE(20), 256);
+  assert.equal(png[25], 6); // RGBA, not a flattened black/checkerboard background.
+  const ico = fs.readFileSync(path.join(root, 'desktop/assets/usic.ico'));
+  assert.equal(ico.readUInt16LE(0), 0); assert.equal(ico.readUInt16LE(2), 1);
+  assert.equal(ico.readUInt16LE(4), 7);
+  const expected = [16, 24, 32, 48, 64, 128, 256];
+  let offset = 6 + expected.length * 16;
+  for (const [index, size] of expected.entries()) {
+    const entry = 6 + index * 16, bytes = ico.readUInt32LE(entry + 8);
+    assert.equal(ico[entry] || 256, size); assert.equal(ico[entry + 1] || 256, size);
+    assert.equal(ico.readUInt32LE(entry + 12), offset);
+    const frame = ico.subarray(offset, offset + bytes);
+    assert.equal(frame.subarray(1, 4).toString(), 'PNG');
+    assert.equal(frame.readUInt32BE(16), size); assert.equal(frame.readUInt32BE(20), size);
+    assert.equal(frame[25], 6); offset += bytes;
+  }
+  assert.equal(offset, ico.length);
+});
+
+test('desktop and web use Usic display branding without changing legacy data/config contracts', () => {
+  const root = path.resolve(__dirname, '..');
+  const main = fs.readFileSync(path.join(root, 'desktop/main.cjs'), 'utf8');
+  const page = fs.readFileSync(path.join(root, 'web/index.html'), 'utf8');
+  assert.match(main, /app\.setName\(displayName\)/);
+  assert.match(main, /app\.setAppUserModelId\('com\.usic\.player'\)/);
+  assert.match(main, /desktop\/assets\/usic\.ico/);
+  assert.match(page, /<title>小黄花 · Usic<\/title>/);
+  assert.match(page, /href="\/assets\/usic\.png"/);
+  assert.match(page, /name="talk-csrf"/); // Existing renderer/API contract remains compatible.
+});
 
 function fixture(run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'talk desktop '));
@@ -31,6 +70,17 @@ test('BOM configuration supported on Windows', () => fixture(root => {
   fs.writeFileSync(path.join(root, 'config.local.json'), '\uFEFF{"port":43301}');
   assert.equal(loadConfig(root, {}).port, 43301);
 }));
+test('PowerShell 5 and 7 accept JSON integers but reject coerced configuration values',
+  {skip: process.platform !== 'win32'}, () => {
+    for (const shell of ['powershell.exe', 'pwsh.exe']) {
+      const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-File', path.join(__dirname, 'test_runtime.ps1')], {encoding: 'utf8', windowsHide: true, timeout: 20000});
+      if (shell === 'pwsh.exe' && result.error?.code === 'ENOENT') continue;
+      assert.equal(result.error, undefined, shell + ' failed to run');
+      assert.equal(result.status, 0, shell + ': ' + result.stderr);
+      assert.match(result.stdout, /POWERSHELL_RUNTIME_CONFIG_OK/);
+    }
+  });
 test('missing explicit config cannot silently use defaults', () => fixture(root => {
   assert.throws(() => loadConfig(root, {TALK_CONFIG_FILE: 'absent'}), /CONFIG_FILE_NOT_FOUND/);
 }));
@@ -126,9 +176,13 @@ test('OS window changes publish state and closed windows dispose IPC/listeners',
 });
 
 test('sandboxed preload exposes window-only methods, strips IPC events and supports unsubscribe', async () => {
-  let exposed;
+  let exposed, capabilities;
   const invoked = [], listeners = new Map();
-  const electron = {contextBridge: {exposeInMainWorld: (name, api) => {assert.equal(name, 'talkWindow'); exposed = api;}},
+  const electron = {contextBridge: {exposeInMainWorld: (name, api) => {
+    assert.ok(['talkWindow', 'usicLyrics', 'usicCapabilities'].includes(name));
+    if (name === 'talkWindow') exposed = api;
+    if (name === 'usicCapabilities') capabilities = api;
+  }},
     ipcRenderer: {invoke: async (...args) => {invoked.push(args);},
                   on: (channel, listener) => listeners.set(channel, listener),
                   removeListener: (channel, listener) => {assert.equal(listeners.get(channel), listener); listeners.delete(channel);}}};
@@ -136,8 +190,12 @@ test('sandboxed preload exposes window-only methods, strips IPC events and suppo
     {require: name => {assert.equal(name, 'electron'); return electron;}});
   assert.equal(Object.isFrozen(exposed), true);
   assert.deepEqual(Object.keys(exposed).sort(), ['close', 'getState', 'minimize', 'onState', 'toggleMaximize']);
+  assert.equal(Object.isFrozen(capabilities), true);
+  assert.deepEqual(Object.keys(capabilities), ['chooseScoreBundle']);
   await exposed.minimize('untrusted'); await exposed.toggleMaximize(); await exposed.close(); await exposed.getState();
   assert.deepEqual(invoked, ['minimize', 'toggle-maximize', 'close', 'state'].map(action => [WINDOW_COMMAND, action]));
+  await capabilities.chooseScoreBundle('../untrusted-path');
+  assert.deepEqual(invoked.at(-1), ['usic:score-bundle']);
   assert.throws(() => exposed.onState(null), /WINDOW_CALLBACK_INVALID/);
   const received = [];
   const unsubscribe = exposed.onState((...args) => received.push(args));

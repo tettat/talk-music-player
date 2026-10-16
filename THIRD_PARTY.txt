@@ -39,3 +39,24 @@ Electron is MIT; its distribution includes Chromium/Node and their license notic
 in node_modules/electron/dist/LICENSE and LICENSES.chromium.html. These runtime
 dependencies are installed by npm ci, not committed or stripped of notices.
 Desktop security follows https://www.electronjs.org/docs/latest/tutorial/security
+
+NetEase protocol reference: NeteaseCloudMusicApiEnhanced/api-enhanced
+https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced/tree/2db6684453297ee86dec0492842f2320b08182d9
+License: MIT (Copyright 2013-2022 Binaryify); unmodified notice retained in
+notices/netease-api-enhanced-MIT.txt. Normal weapi framing and read-only search,
+song detail, free standard source and lyric contracts were reviewed. The upstream
+server, packages and unblock/alternate-source dependencies are not included or run.
+The local minimal adapter uses existing pinned cryptography and miniaudio only.
+No NetEase program/DLL/frontend assets, account data or audio are redistributed.
+Kimi also provided the dual-source interaction proposal; implementation uses a
+stricter same-recording grouping rule and an explicit statistics source filter.
+
+Independent score-lab demo: capabilities/score_lab/README.txt.
+SheetSage2 and MERT-v2-FullSong are loaded from separately configured local
+repositories, not bundled in Usic. Their weights retain CC BY-NC 4.0; this is a
+personal, noncommercial evaluation capability, not a commercial redistribution.
+Pinned code/config/weight hashes: capabilities/score_lab/model.lock.json.
+abcjs 6.6.3 (MIT) and FluidR3 piano samples by Frank Wen (CC BY 3.0 US) are
+explicitly downloaded into the private demo directory, not committed.
+Full abcjs notice and piano attribution: capabilities/score_lab/notices/.
+Rendering-asset origins and hashes: capabilities/score_lab/render-assets.lock.json.

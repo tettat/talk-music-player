@@ -1,0 +1,73 @@
+小黄花 · Usic — Windows x64 私人测试安装包
+私人测试，公开发布前复核。此包未签名；不承诺可商业发行。
+
+安装与数据
+  npm ci
+  npm run pack:win       # clean staging + hash-locked runtime + NSIS, never publish
+  npm run test:packaging
+  npm run verify:packaging
+  dist/Usic-<version>-windows-x64-setup.exe
+  NSIS 当前用户、无需管理员、允许选择可写目录；不注册服务/自启动/官方客户端。
+  默认数据：Electron app.getPath('userData')，随后主程序使用其 desktop-profile 子目录。
+  可用绝对路径 USIC_USER_DATA_DIR 定位独立数据根；禁止指向安装 resources。
+  数据根/config.json 使用与开发配置相同的严格 schema；安装器不复制 config.local.json。
+  本地数据库、QQ DPAPI 凭据、日志、音乐与缓存只在数据根，不在安装 resources。
+  卸载保留私人数据；手动备份/删除须由用户自己决定。
+  路径含中文或空格受支持。不需要本机 Python、QQ 或网易官方客户端。
+
+运行时结构（不复制 .venv）
+  resources/app/                 明确 files.json 白名单的可读源代码/界面/许可证
+  resources/app/desktop/packaging.cjs   安装专用 bootstrap；开发 main 保持不变
+  resources/runtime/runtime.json      相对路径、Python与依赖hash、逐文件完整性清单
+  resources/runtime/base/python/      官方 CPython 3.12.10 amd64 embeddable
+    Scripts/python.exe, python312.dll, python312.zip, LICENSE.txt, python312._pth
+    Lib/site-packages/                从 wheels hashlock 重新安装，保留 dist-info/licenses
+  python312._pth 仅含 python312.zip、.、Lib/site-packages；不启用 site startup 或外部 PYTHONPATH。
+  原版 python.exe/pythonw.exe 移至 Scripts/（不是 venv），DLL 与 _pth 留在父目录；
+  helper PATH 使系统找到自有 DLL，sys.prefix 仍为 python/，兼容既有 QQ SDK guard。
+  删除未使用的 console launcher/bytecode 与 urllib3_future.pth 文件系统修改钩子；许可证保留。
+  pip 仅在构建主机使用，不随运行时安装。启动仍为 python.exe -I -B src/server.py。
+  Python 3.12.10 是 3.12 最后官方完整维护 Windows 包，不是最新安全修复版；
+  公开发布前应升级到有安全维护的可再分发 Python，并重测 CPython312 wheels。
+
+主程序 helper 接口
+  const {getRuntimeLaunch} = require('./packaging.cjs');
+  const launch = getRuntimeLaunch({app, resourcesPath: process.resourcesPath});
+  const config = loadConfig(launch.root, launch.env);
+  const backend = new BackendController(launch.root, launch.env);
+  返回 {root, runtimeRoot, userData, env, packaged}，不启动进程、不写文件。
+  当前安装包 package.main 指向 packaging.cjs，bootstrap 安全设置 env 后加载原 main.cjs，
+  因而不需要改 main/backend。若将来主程序直接集成，应切回 main 入口并避免双 bootstrap。
+  TALK_PACKAGED=1、TALK_RUNTIME_ROOT、TALK_USER_DATA 定义安装配置；JS/Python 同步解析。
+  开发运行仍使用 config.local.json/.venv/.private，无安装环境注入。
+
+可选本机能力包（不在主安装包内）
+  识谱代码和许可证随 app；torch/大模型/SheetSage/MERT 仓库/音色不打包。
+  USiC_SCORE_LAB_CONFIG 或 USIC_SCORE_LAB_CONFIG = 能力包 config.json 的绝对路径。
+  helper 同时输出两种拼写；既有 score_lab 消费全大写变量。
+  缺省路径：<数据根>/capabilities/score-lab/config.json。
+  能力包配置中的 python/dataDir/sheetRepo/baseRepo/assetsDir 必须填绝对路径，
+  dataDir/assetsDir 必须位于安装 resources 以外；启动器不得在只读安装目录生成配置。
+  能力包的独立生命周期仍须主程序集成，退出必须只回收自有子进程。
+  Basic Pitch 的 analysis_python/basic_pitch_model 可以在数据根/config.json 配置，
+  缺省为 <数据根>/capabilities/basic-pitch/python/python.exe 与 models/nmp.onnx。
+  主安装包不含上述模型/运行时，未安装时应显示能力不可用而不是下载或付费。
+
+许可证/发布边界
+  Usic 集成和 QQ SDK 按仓库声明 GPL-3.0-or-later；完整 GPL、COPYING-QQMusicApi、
+  THIRD_PARTY.txt 和相应 .py 源代码保留。网易协议参考 MIT notice 保留。
+  Electron MIT、Chromium/Node 说明随应用及 Electron 原始运行时保留。
+  Python LICENSE.txt、所有已安装 wheel 的 dist-info/license 文件保留。
+  Basic Pitch Apache-2.0 原始源码与许可证保留；模型不包含。
+  SheetSage/MERT 权重的非商业限制不因独立能力包而消失；音色归属说明保留。
+  wheel 中的原生组件、GPL 对应源代码完整性、商标/音乐权利及依赖兼容性尚需发布复核。
+  无发布服务器、自动更新、计费或代码签名凭证；构建一律 --publish never。
+
+核查来源（2026-10-15）
+  https://www.electron.build/v26/docs/nsis/
+  https://www.electron.build/v26/docs/contents/
+  https://github.com/electron-userland/electron-builder/releases/latest
+  https://registry.npmjs.org/electron-builder/latest
+  官方 GitHub latest 为 26.17.0；本机构建可用 npm stable 为 26.15.3，固定后者并锁 integrity。
+  https://docs.python.org/3.12/using/windows.html#windows-embeddable
+  https://www.python.org/downloads/release/python-31210/

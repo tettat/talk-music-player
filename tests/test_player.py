@@ -15,6 +15,7 @@ from server import Player, Server, byte_range
 
 TRACK = {'mid': '0039MnYb0qxYhV', 'songId': 97773, 'title': '晴天', 'artist': '周杰伦',
          'album': '叶惠美', 'albumMid': '000MkMni19ClKG', 'duration': 269}
+TRACK_KEY = 'qq:' + TRACK['mid']
 
 
 class LibraryTests(unittest.TestCase):
@@ -34,7 +35,8 @@ class LibraryTests(unittest.TestCase):
 
     def test_metadata_uses_only_fixed_local_cover_route(self):
         self.assertEqual(self.track['cover'], '/api/cover/000MkMni19ClKG')
-        self.assertEqual(self.track['key'], TRACK['mid'])
+        self.assertEqual(self.track['key'], TRACK_KEY)
+        self.assertEqual(self.track['source'], 'qq')
 
     def test_reject_mid_traversal(self):
         for mid in ['../secret', 'http://example.com', '', 'x' * 33, '<script>bad</script>']:
@@ -56,8 +58,8 @@ class LibraryTests(unittest.TestCase):
     def test_favorite_toggle_and_deduplicate(self):
         self.lib.favorite(TRACK['mid'], True)
         self.lib.favorite(TRACK['mid'], True)
-        self.assertEqual(self.lib.snapshot()['favorites'], [TRACK['mid']])
-        self.assertEqual(self.lib.snapshot()['library'], [TRACK['mid']])
+        self.assertEqual(self.lib.snapshot()['favorites'], [TRACK_KEY])
+        self.assertEqual(self.lib.snapshot()['library'], [TRACK_KEY])
         self.lib.favorite(TRACK['mid'], False)
         self.assertEqual(self.lib.snapshot()['favorites'], [])
 
@@ -66,7 +68,7 @@ class LibraryTests(unittest.TestCase):
         self.lib.playlist(pid, 'add', TRACK['mid'])
         self.lib.playlist(pid, 'add', TRACK['mid'])
         self.lib.playlist(pid, 'rename', '夜航')
-        self.assertEqual(self.lib.snapshot()['playlists'][0], {'id': pid, 'name': '夜航', 'keys': [TRACK['mid']]})
+        self.assertEqual(self.lib.snapshot()['playlists'][0], {'id': pid, 'name': '夜航', 'keys': [TRACK_KEY]})
         self.lib.playlist(pid, 'remove', TRACK['mid'])
         self.assertEqual(self.lib.snapshot()['playlists'][0]['keys'], [])
         self.lib.playlist(pid, 'delete')
@@ -199,6 +201,15 @@ class HttpTests(unittest.TestCase):
     def test_cross_origin_get_refused(self):
         self.assertEqual(self.request('/api/library', headers={'Origin': 'https://evil.invalid'})[0], 403)
 
+    def test_desktop_lyrics_module_is_narrow_static_and_requires_native_bridge(self):
+        status, headers, body = self.request('/desktop-lyrics.mjs')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Type'], 'text/javascript; charset=utf-8')
+        self.assertIn(b'installDesktopLyrics', body)
+        self.assertTrue(json.loads(self.request('/api/features')[2])['desktopLyrics'])
+        self.assertIn('aria-label="桌面歌词" title="桌面歌词" aria-pressed="false" hidden'.encode(), self.request('/')[2])
+        self.assertEqual(self.request('/desktop/lyrics/index.html')[0], 404)
+
     def test_cross_site_browser_get_refused(self):
         self.assertEqual(self.request('/', headers={'Sec-Fetch-Site': 'cross-site'})[0], 403)
 
@@ -229,7 +240,7 @@ class HttpTests(unittest.TestCase):
     def test_favorite_api(self):
         status, _, body = self.request('/api/favorite', {'key': TRACK['mid'], 'enabled': True})
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)['favorites'], [TRACK['mid']])
+        self.assertEqual(json.loads(body)['favorites'], [TRACK_KEY])
 
     def test_playlist_api(self):
         status, _, body = self.request('/api/playlists', {'name': 'test'})

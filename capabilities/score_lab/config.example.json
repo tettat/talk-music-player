@@ -1,0 +1,11 @@
+{
+  "dataDir": ".private/score-lab",
+  "python": ".private/runtime-sheetsage/Scripts/python.exe",
+  "sheetRepo": ".private/models/sheetsage2",
+  "baseRepo": ".private/models/mert-v2-fullsong",
+  "assetsDir": ".private/score-lab/render-assets",
+  "device": "cpu",
+  "threads": 2,
+  "port": 0,
+  "jobTimeoutSeconds": 3600
+}

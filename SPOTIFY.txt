@@ -1,0 +1,51 @@
+Spotify 接入核查（2026-10-13，网抑）
+
+交付状态
+尚未接入 Usic。没有启用 Spotify provider，没有完成真实账号授权、搜索或整曲播放测试。
+本轮没有修改 QQ／网易云源码、账号或正在运行的播放器，也没有注册账号、付费或重启生产窗口。
+
+一、官方接口与账号
+Web API 与 Web Playback SDK 是不同能力，不能把搜索结果或试听地址当作完整音源。
+官方 SDK 的音乐播放要求用户具有 Premium。当前 Development Mode 还要求应用所有者具有 Premium，最多 5 个授权用户，用户须加入白名单。
+证据：
+https://developer.spotify.com/documentation/web-playback-sdk/reference
+https://developer.spotify.com/documentation/web-api/concepts/quota-modes
+
+若后续验证官方路线，桌面授权应走系统浏览器＋PKCE，而不是读取官方客户端密码或秘密。回调需按当时官方 Redirect URI 规则配置。
+开发者控制台：https://developer.spotify.com/dashboard
+https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow
+https://developer.spotify.com/documentation/web-api/concepts/redirect_uri
+目前没有为用户创建开发者应用或获取 client ID；也未确认用户是否有 Spotify Premium。不要先要求用户付费。
+
+二、本机 Electron 能力实测
+2026-10-13 08:53（上海），使用项目现有 Electron 44.7.0／Chromium 152.0.7977.130，独立临时 profile、隐藏窗口、自有回环 HTTP 空页面，沿用生产 renderer 安全设置。
+安全上下文：true；EME API：存在；AAC codec：probably。
+com.widevine.alpha 默认及 SW_SECURE_CRYPTO 两种请求均返回 NotSupportedError。
+结论：当前发行构建没有通过所测 Widevine 能力检查，官方 SDK 直接嵌入这份运行时存在实证障碍。不是完整 Spotify SDK 测试，不能由此推出所有 Electron 或所有其他播放路线都不可行。
+未加载 Spotify SDK、未发账号请求、未播放任何音频；没有放宽生产 CSP／sandbox 或从其他客户端复制 DRM 模块。
+探针：output/spotify-runtime-probe.cjs
+结果：output/spotify-runtime-probe.json
+官方 SDK 参考文档将不支持 EME 列为播放器初始化失败的常见原因：
+https://developer.spotify.com/documentation/web-playback-sdk/reference
+
+三、产品接入规则（与技术可行性分开）
+Spotify Developer Policy III.5 限制与其他服务内容整合，III.13 限制派生听歌／用户统计，III.14 限制将 Spotify 内容输入 AI／ML。
+因此不能直接照搬当前 QQ／网易云的混合队列、自有统计和 Basic Pitch 管线。需要另行核实产品边界或取得相应许可，不能把这些规则误报成 Windows 限制，也不是对所有非官方客户端作法律判断。
+https://developer.spotify.com/policy
+
+四、其他开源路线（仅文档核查，未实测）
+librespot：独立开源客户端库／Connect 接收端；项目说明 Windows 可使用默认 Rodio 后端构建。仍要求 Premium，且项目自己提示连接 Spotify 存在服务条款风险。可作为独立受控实验候选，不等于 Spotify 已授权或混合产品已经可发布。
+https://github.com/librespot-org/librespot
+spotifyd：基于 librespot 的 UNIX 后台客户端，同样要求 Premium；不是本项目 Windows 方案已经跑通的证据。
+https://github.com/Spotifyd/spotifyd
+尚未构建、授权或播放上述项目；未验证免费账号整曲播放路线。未处理 Spotify 音频导出、保护绕过或 AI 分析。
+
+五、外包异常（待工厂基础设施修复）
+6.1 sol max 首次：orun_mv5esxz3_bo2vccwg，失败原因 Selected model is at capacity；无交付报告。
+重试：orun_mv5ggbex_uegl01i8，2026-10-13 00:17 左右启动，到 08:50 仍标 running、无输出报告，不应视为健康推进。
+授权 CLI recover-job --dry-run 返回：Recovery damaged metadata identity mismatch: createdAt。
+授权 CLI interrupt 返回：尚未获得活动 turn ID，请稍后重试。没有收到中断成功确认，未伪造结束状态或直接修改任务记录。
+指定的 output/spotify-integration-research.txt 在本轮检查时不存在；本文是主员工独立核查，不冒充外包结果。
+
+下一步边界
+先澄清上述官方产品限制，并对独立播放候选进行有界验证；只有确认账号条件及授权后才做真实播放。还没有证据保证满足“无需官方客户端、与 QQ／网易云混听、同时统计和 AI 分析”的完整目标。

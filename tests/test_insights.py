@@ -41,9 +41,9 @@ class InsightTests(unittest.TestCase):
 
     def test_search_pruning_preserves_new_insight_references(self):
         self.store.put('lyrics', TRACK['mid'], {'available': False})
-        metadata=self.lib.db.execute('SELECT metadata FROM tracks WHERE key=?',(TRACK['mid'],)).fetchone()[0]
-        self.lib.db.executemany('INSERT INTO tracks VALUES(?,?,NULL)',
-                               [(str(i).zfill(14),metadata) for i in range(9999)])
+        metadata=self.lib.db.execute('SELECT metadata FROM tracks WHERE key=?',('qq:'+TRACK['mid'],)).fetchone()[0]
+        self.lib.db.executemany('INSERT INTO tracks(key,metadata,used) VALUES(?,?,NULL)',
+                               [('qq:'+str(i).zfill(14),metadata) for i in range(9999)])
         self.lib.put([{**TRACK,'mid':'99999999999999'}])
         self.assertIsNotNone(self.store.get('lyrics',TRACK['mid']))
         self.assertEqual(self.lib.get(TRACK['mid'])['songId'],TRACK['songId'])

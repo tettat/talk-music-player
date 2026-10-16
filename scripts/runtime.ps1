@@ -17,7 +17,9 @@ function Get-TalkConfig {
       $values[$property.Name]=$property.Value
     }
   }
-  if($values.schema_version -cne 1){throw 'CONFIG_VERSION_INVALID'}
+  # ConvertFrom-Json uses Int32 on Windows PowerShell and Int64 on PowerShell 7.
+  # Accept both integer representations, never coercible strings/bools/floats.
+  if(($values.schema_version -isnot [int] -and $values.schema_version -isnot [long]) -or $values.schema_version -ne 1){throw 'CONFIG_VERSION_INVALID'}
   foreach($name in @('python','data_dir','qq_session_dir','analysis_python','basic_pitch_model')){
     $override=[Environment]::GetEnvironmentVariable('TALK_'+$name.ToUpperInvariant())
     if($null -ne $override){$values[$name]=$override}
@@ -27,7 +29,10 @@ function Get-TalkConfig {
     if(-not [IO.Path]::IsPathRooted($value)){$value=Join-Path $Root $value}
     $values[$name]=[IO.Path]::GetFullPath($value)
   }
-  if($values.port -isnot [int] -or $values.port -lt 1024 -or $values.port -gt 65535){throw 'CONFIG_NUMBER_INVALID'}
-  if($values.ttl_seconds -isnot [int] -or $values.ttl_seconds -lt 60 -or $values.ttl_seconds -gt 172800){throw 'CONFIG_NUMBER_INVALID'}
+  if(($values.port -isnot [int] -and $values.port -isnot [long]) -or $values.port -lt 1024 -or $values.port -gt 65535){throw 'CONFIG_NUMBER_INVALID'}
+  if(($values.ttl_seconds -isnot [int] -and $values.ttl_seconds -isnot [long]) -or $values.ttl_seconds -lt 60 -or $values.ttl_seconds -gt 172800){throw 'CONFIG_NUMBER_INVALID'}
+  $values.schema_version=[int]$values.schema_version
+  $values.port=[int]$values.port
+  $values.ttl_seconds=[int]$values.ttl_seconds
   return [pscustomobject]$values
 }

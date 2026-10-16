@@ -1,13 +1,18 @@
 'use strict';
-const {app, BrowserWindow, dialog, ipcMain} = require('electron');
+const {app, BrowserWindow, dialog, ipcMain, screen, globalShortcut} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const {BackendController} = require('./backend.cjs');
 const {loadConfig} = require('./config.cjs');
 const {allowedURL, windowPreferences} = require('./security.cjs');
 const {bindWindowControls} = require('./window-controls.cjs');
+const {createDesktopLyrics} = require('./lyrics-window.cjs');
+const {bindScoreBundle} = require('./score-bundle.cjs');
 
 const root = path.resolve(__dirname, '..');
+const displayName = '小黄花 · Usic';
+app.setName(displayName);
+if (process.platform === 'win32') app.setAppUserModelId('com.usic.player');
 let mainWindow;
 let backend;
 let quitting = false;
@@ -21,7 +26,7 @@ try {
   app.setPath('userData', profile);
   app.setPath('sessionData', profile);
 } catch {
-  dialog.showErrorBox('talk', '本机配置无效，请检查 config.local.json。');
+  dialog.showErrorBox(displayName, '本机配置无效，请检查 config.local.json。');
   app.exit(1);
 }
 
@@ -43,7 +48,7 @@ if (!app.requestSingleInstanceLock()) {
     backend = new BackendController(root);
     backend.on('unexpected-exit', () => {
       if (!quitting && mainWindow) {
-        dialog.showErrorBox('talk', '本地服务已退出，请重新打开播放器。');
+        dialog.showErrorBox(displayName, '本地服务已退出，请重新打开播放器。');
         app.quit();
       }
     });
@@ -51,10 +56,15 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     const origin = new URL(ready.url).origin;
     mainWindow = new BrowserWindow({width: 1380, height: 900, minWidth: 900, minHeight: 650,
-      title: 'talk', frame: false, backgroundColor: '#161714', show: false, autoHideMenuBar: true,
+      title: displayName, icon: path.join(root, process.platform === 'win32' ? 'desktop/assets/usic.ico' : 'web/assets/usic.png'),
+      frame: false, backgroundColor: '#161714', show: false, autoHideMenuBar: true,
       webPreferences: {...windowPreferences(), preload: path.join(__dirname, 'preload.cjs')}});
     mainWindow.removeMenu();
     bindWindowControls(ipcMain, mainWindow, origin);
+    bindScoreBundle({ipcMain, dialog, window: mainWindow, origin, root,
+      dataDir: process.env.TALK_DESKTOP_QA === '1' ? path.join(config.data_dir, 'qa') : config.data_dir});
+    createDesktopLyrics({BrowserWindow, ipcMain, screen, globalShortcut, mainWindow, origin,
+      profile: app.getPath('userData')});
     const contents = mainWindow.webContents;
     contents.session.setPermissionRequestHandler((_web, _permission, callback) => callback(false));
     contents.session.setPermissionCheckHandler(() => false);
@@ -65,11 +75,13 @@ if (!app.requestSingleInstanceLock()) {
     contents.setWindowOpenHandler(() => ({action: 'deny'}));
     contents.on('will-navigate', (event, url) => {if (!allowedURL(url, origin)) event.preventDefault();});
     contents.on('will-attach-webview', event => event.preventDefault());
-    mainWindow.once('ready-to-show', () => mainWindow.show());
+    mainWindow.once('ready-to-show', () => {
+      if (!(process.env.TALK_DESKTOP_QA === '1' && process.env.USIC_QA_HIDDEN === '1')) mainWindow.show();
+    });
     mainWindow.on('closed', () => {mainWindow = null;});
     await mainWindow.loadURL(ready.url);
   }).catch(() => {
-    dialog.showErrorBox('talk', '启动失败。请检查本机配置与 Python 环境，详见 README。');
+    dialog.showErrorBox(displayName, '启动失败。请检查本机配置与 Python 环境，详见 README。');
     app.quit();
   });
 }

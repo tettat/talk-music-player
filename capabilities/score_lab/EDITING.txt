@@ -1,0 +1,287 @@
+小黄花谱室：独立谱面音高纠错、回放与导出协议 v1
+================================================
+
+交付边界
+--------
+editing.py + web/editor.mjs 是独立引擎；没有修改 common.py、worker.py、
+accompaniment.py、server.py 或既有 app.mjs，没有接入 HTTP、Lab 队列或 DOM。
+主程序员负责这些接入。没有 React、新编辑器工程或 QScore 三声部集成；本实现
+使用 canonical ABC + 现有 music21 声部转换器，不能把 QScore 的 single-part
+treble/bass 能力说成三声部集成。
+
+首版只改音高：支持旋律单音、和弦内指定单音、完整连音链；不改节奏、拍号、
+调号、速度标记、连音结构、声部、和弦文字标签或其他非音高源码。
+高级入口是同样受限的 ABCsafe 源码编辑，不是通用 ABC 执行器。
+
+优先 sample/result/arrangement.abc；仅当文件不存在时 fallback score.abc。
+已有 arrangement 即使非法也绝不退回两声部而悄悄丢失伴奏。只接受当前转换器
+认识的 Vocal / Ins / Accomp；未知声部拒绝而不是忽略。保留全休止声部。
+fallback 的原始播放中若还有未刻谱声部，它以原曲秒冻结保留在 MIDI/WAV 中；
+不能编辑，MusicXML/ABC 仍只含真实已刻谱声部，不虚称三声部谱面。
+
+不重新识别，不读取账户、QQ 凭据或网络资源；不覆盖原 result、ABC、MIDI、
+原曲或原钢琴音频。所有写入只进入本样本 edits/；测试只在完整副本上执行。
+
+1. 轻量读取 / 入队入口（stdlib，可由 HTTP 进程 import）
+------------------------------------------------------
+from capabilities.score_lab import editing
+
+current = editing.read_current(config, sample_id)
+
+返回示例：
+{
+  "schemaVersion": 1,
+  "sampleId": "sunny",
+  "revision": 0,
+  "revisionId": null,
+  "sourceAbc": "arrangement.abc",
+  "sourceFingerprint": "<64 个小写十六进制字符>",
+  "abc": "X:1\n...完整 canonical ABC...\n",
+  "exports": [],
+  "media": []
+}
+
+revision 是提交序号（整数，从 0 开始）；revisionId 是一次提交的唯一事务标识
+（字符串），两者不是同一字段。revision 0 没有编辑产物；原始试听/下载继续走
+主程序原有路由。非零 revision 返回已提交 ABC 和对应 exports/media 名单。
+read_current 不产生文件、不导入 music21/numpy/torch/soundfile。
+
+草稿 JSON 精确要求三个字段，不接受额外字段：
+{
+  "abc": "...完整 ABC 草稿...",
+  "baseRevision": 0,
+  "sourceFingerprint": "...上一次 read_current 返回的 token..."
+}
+
+相对最初要求的 {abc, baseRevision}，增加必需 sourceFingerprint，以检测第一次
+提交前就已发生的原谱/时间轴变化。它是原始 result.json、canonical ABC、实际
+使用的 beat 文件内容哈希的组合，不能由浏览器重新生成或省略。
+
+建议 HTTP 请求体：{revisionId: "<新 nonce>", draft: <上面的对象>}。
+更推荐服务端生成 nonce。只用 a-z、0-9、-，长度 1–64，首字符必须字母或数字；
+--revision 1 也可用，但唯一 ID 与提交序号依然是不同概念。
+
+path = editing.write_draft(config, sample_id, draft, revision_id)
+
+该 stdlib helper 校验大小/安全语法，在 edits/drafts/draft-<nonce>.json 独占创建
+并 flush/fsync，返回绝对路径。相同事务不能覆盖已入队草稿。它不代表已提交。
+随后把该路径和 nonce 交给 Lab 的同一个串行队列。识别、重渲染、编辑都必须
+经过这个队列，不能同时改同一样本的原始输入。
+
+浏览器不得提交 config、python、draft 文件路径、输出路径或任意资源路径。
+引擎拒绝样本/修订路径穿越、目录符号链接和 Windows junction/reparse point。
+
+2. CLI（必须在模型 Python 环境执行）
+----------------------------------
+项目根目录下的命令形状：
+
+& .private/transcription-20261010/route_b/venv/Scripts/python.exe `
+  capabilities/score_lab/editing.py `
+  --config <可信配置的绝对路径> `
+  --sample <sample-id> `
+  --draft <write_draft 返回的绝对路径> `
+  --revision <唯一 nonce 或数字字符串>
+
+根 .venv 只用于轻量读取与边界测试，不用于转换/渲染。重依赖只在 CLI 子进程的
+_build 阶段加载；不加载识别模型、不执行 torch 推理。
+
+--draft 严格限制为该 sample/edits/drafts/ 的直接、非链接、普通 .json 文件；
+basename 为 1–70 个小写字母/数字/- 后接 .json。不能传别处的临时文件。
+这是有意收紧的路径协议；用 write_draft 不需要主程序重新实现安全路径逻辑。
+--config 是可信部署参数，不得来自 HTTP 请求。
+--job-name 可接受主程序现有 OwnedJob 名称。--_run 是内部子进程开关，不向
+HTTP/UI 暴露。
+
+CLI 自监督模型子进程，硬超时 min(config.jobTimeoutSeconds, 600) 秒；使用现有
+OwnedJob/进程组，只管理这一次调用的子进程树，不操作其他播放器或谱室进程。
+主程序可另设队列超时；建议给监督进程保留约 10 秒清理宽限。
+
+成功 stdout 为一个 JSON：
+{
+  "ok": true, "sampleId": "sunny", "revision": 1, "revisionId": "<nonce>",
+  "result": "edits/rev-<nonce>/result.json",
+  "exports": ["edited.abc", "edited.mid", "edited.musicxml", "notes.json"],
+  "media": ["piano_chords.wav", "piano_instrumental.wav", "piano_mix.wav", "piano_vocal.wav"]
+}
+
+失败 stdout 为 {ok:false, code, message}，不回传私有绝对路径或第三方 traceback。
+退出码：0 成功；2 invalid_edit；3 conflict；1 execution_failed；124 timeout。
+HTTP 可映射为 400 / 409 / 500 / 504。请求格式错误的 argparse 退出码也是 2。
+不要仅凭已生成文件或进程启动就宣布完成；必须等退出码 0 / ok:true。
+
+3. 修订布局、冲突与原子发布
+--------------------------
+sample/
+  result/                  原始目录，永不写入
+  result.json              原始结果，永不写入
+  original.wav             原曲，永不写入
+  piano_*.wav              原钢琴音频，永不写入
+  edits/
+    drafts/draft-<nonce>.json
+    .write.lock            OS 锁；崩溃后释放，不需按时间猜测解锁
+    .pending-<random>/     不对 HTTP 暴露
+    rev-<nonce>/
+      edited.abc
+      edited.musicxml
+      edited.mid
+      notes.json
+      piano_mix.wav
+      piano_vocal.wav      对应保留声部；全休止声部为静音 WAV
+      piano_instrumental.wav
+      piano_chords.wav
+      result.json
+    current.json           最后一步 os.replace 原子发布的指针
+
+同样本所有写者共享 OS 非阻塞锁。baseRevision 必须等于 current 的序号；原始
+sourceFingerprint 必须仍相同；nonce 不允许已存在。没有“最后保存者强行覆盖”。
+完整生成、MusicXML 回读验证、文件 flush/fsync 完成后才 rename staging；然后
+原子更新 current.json，后者才是提交点。发布前再次检查源与 current 未变化。
+
+current.json 内有 schemaVersion、sampleId、revision、revisionId、
+sourceFingerprint 和 history:[{revisionId,resultSha256}]。history 的位置 + 1
+就是该修订序号；不包含任意可执行路径。之前的 revision 永不覆盖。
+未列入 history 的 orphan 修订不可读、不可试听、不可导出，也不能重用 nonce。
+
+进程中断/磁盘故障可能留下 .pending-*，或 rename 成功但指针发布失败留下
+完整 orphan。它们不影响旧 current；不自动删文件、不猜测提交成功。若调用方
+丢失响应，先读 current / 指定 revision 判断是否已经成功，不盲目重放同 nonce。
+需要维护者在停写、核对指针和绝对路径后按保留策略清理孤立文件。
+
+原始谱/时间轴重新生成后，旧编辑历史不能无声 rebase；read_current/提交报
+conflict。历史 pinned 下载仍可读。首版没有重置/合并 API，建议使用新 sample。
+原子发布不是跨所有第三方写程序的事务：主程序串行队列仍然是必要约束。
+
+4. 读取结果、导出及媒体（必须锁定同一 revisionId）
+--------------------------------------------------
+result = editing.read_revision_result(config, sample_id, revision_id)
+path = editing.revision_file(config, sample_id, revision_id, name, kind="export")
+path = editing.revision_file(config, sample_id, revision_id, name, kind="media")
+
+以上均为 stdlib-only。read_revision_result 只允许 history 中已发布的 ID，检查
+result.json 的摘要与身份；revision_file 再做固定白名单、非链接路径、长度和
+SHA-256 校验。不能把相对路径直接拼到 HTTP 文件系统根目录。返回路径用于
+主程序已有的 MIME、Content-Disposition、Range 处理；没有新建 HTTP server。
+
+固定导出名 EXPORTS：edited.abc / edited.musicxml / edited.mid / notes.json。
+固定媒体名 MEDIA：piano_mix.wav / piano_vocal.wav / piano_instrumental.wav /
+piano_chords.wav。某修订实际有哪些文件，以其 result 的 exports/media 为准。
+result.json 走专用 JSON API，不是任意文件下载名。
+
+建议路由形状（本交付未实现）：
+  GET  /samples/<id>/edits/current
+  POST /samples/<id>/edits                         入队，不同步执行模型
+  GET  /samples/<id>/edits/<revisionId>/result
+  GET  /samples/<id>/edits/<revisionId>/export/<白名单名>
+  GET  /samples/<id>/edits/<revisionId>/media/<白名单名>
+
+UI 只在保存成功后读取一次 current 并捕获 revisionId；同一会话的 ABC、notes、
+XML、MIDI、WAV 请求都带这个 ID，禁止分别重查“最新”而混用两个修订。
+草稿未提交时停止/标识旧试听与导出，不应声称它们对应当前未保存草稿。
+已发布 URL 可设置不可变缓存；ETag 可用 result.artifacts[name].sha256。
+current API 不应永久缓存；主程序仍需现有鉴权、Origin/CSRF、队列容量限制。
+
+result.json 包含：
+  revision / revisionId / baseRevision / sourceFingerprint / sourceAbc / sourceInputs
+  abc / arrangement（只有真正存在 Accomp 谱面时非 null）
+  voices（实际播放声部） / notatedVoices / frozenPlaybackVoices
+  duration（原曲片段秒） / tracks / measures / counts
+  exports / media / audioParts / audioEvidence / artifacts / provenance / createdAt
+tracks 中 name/voice/role 与 notes 同属于此 revision；editable:false 表示 fallback
+冻结声部。notes 有 id、pitch、start/end（原曲片段秒）、velocity、quarterStart/
+quarterEnd。冻结声部的 quarterStart/End 为 null，不能伪造谱面位置。
+measures 保留原 map，并增加 scoreQuarterStart/End（四分音符单位）。
+notes.json 包含相同修订身份、duration、tracks、measures，可独立读取。
+没有声称编辑结果是识别真值；provenance.modelExecuted=false。
+
+5. 时间轴与严格验证
+------------------
+先做有界安全词法检查，再用 accompaniment.parse_voice_score 对原谱和草稿精确
+解析；比较所有声部、事件 offset/duration、休止、和弦成员数、小节时间线，以及
+逐音 tie 合并后的起止区间。非音高 skeleton 必须逐字一致（仅规范 CRLF 和
+末尾换行）。export_voice_musicxml 再验证写出/回读的各声部音高、时值、连音。
+重排声部、删伴奏、断 partial chord tie、改 key/meter/节奏等均拒绝。
+
+绝不使用 Q: 的固定 BPM 把整首四分音符线性换成秒。ScoreClock 使用原始
+notation/song_beats.txt 的每个拍点 + 原 result 的 measure map 做分段插值，
+保留歌曲速度波动。leading_rest/trailing_rest 的原单位是全音符，先乘 4；
+人工补的谱面休止不占原曲时间，也不允许音符跨过这些空洞。
+保存的 beat grid 缺失时，使用 beat.lab，并与 accompaniment 的规则一致，只
+用最后 9 个拍点的相邻差中位数补末端 boundary，不用估算 BPM 重建全曲。
+小节数量、起点、分母、末端都要相符，否则拒绝，不做猜测回退。
+
+MIDI 序列化的是上述已对齐的原曲秒，使用 20,000 ticks/秒的 transport clock，
+<=25 微秒舍入；它不是按谱面 Q: 固定速度演奏。空声部也保留命名 MIDI track。
+ABC/MusicXML 则保留原始音乐节奏单位、拍号和调号。最后音符 release 裁到
+原片段长度。用 worker.render_piano 同一份 notes/result 生成 FluidR3 WAV，
+不把编辑后的试听又指向原音频。音色资产按已有 lock 校验后使用。
+编辑试听是 canonical 量化谱，不保证每个未改音符仍等于原始未量化 MIDI 的秒；
+音量沿用原 role 的 velocity 中位数，不支持动态力度编辑。这些限制写进 provenance。
+
+6. DOM-free 前端辅助 API
+-----------------------
+从 web/editor.mjs import，均为纯函数、不访问 DOM/网络、不使用 eval/HTML：
+
+createEditor(current) -> {schemaVersion, abc, baseRevision, sourceFingerprint, past, future}
+listPitchTokens(abc) -> [{startChar,endChar,voice,eventId,pitch,offset,duration,chain,...}]
+selectPitch(abc, selection) -> 一个独立音高 token
+transposePitch(abc, selection, semitones) ->
+  {abc, selection, fromPitch, toPitch, changedFragments}
+applyPitchEdit(state, selection, semitones) -> {state, edit}
+setDraftAbc(state, newAbc) -> 新 state（高级源码入口，非音高变化拒绝）
+undo(state) / redo(state) -> 新 state（无历史时返回原 state）
+makeDraft(state) -> 上述精确三字段 JSON
+
+selection = {startChar,endChar,chordIndex?}：零起点、end-exclusive 的 JS UTF-16
+字符范围，直接兼容 abcjs 源码字符位置。仅点和弦整体时要求 chordIndex 指定
+该范围内第几个成员（0 起），不猜测选中了哪个音。也可直接传 listPitchTokens
+返回的单音范围。跨多个 musical event、选到休止/标签/头部、越界均拒绝。
+
+半音增减按钮可传 +/-1，支持 -12..12 的整数；MIDI 支持范围 21..109。若该音
+属于 tie chain，自动同时改全链，包括 partial chord ties；拒绝和弦内重音高
+碰撞。把其他音显式拼写，防止 ABC 临时升降号传播而意外改变后续未选音。
+故一次操作会改变其他音的源码拼写，但不会改变它们的实际音高。
+操作后必须重新 render abcjs 并重新取得范围；旧范围不能继续复用。
+工具支持 canonical major/minor key；其它调式可让高级入口提交后端验证，不应
+用辅助函数猜测。服务端始终是最终校验边界。
+
+state/历史不原地修改，undo/redo 上限各 50 次，新编辑清空 redo。保存成功后
+重新 read_current + createEditor 建立新 baseRevision；冲突时保留本地草稿，让
+用户刷新/人工比较，不能自动改 token 后重试覆盖。浏览器显示源码应使用 textarea
+value/textContent，不把 ABC 插入 innerHTML。
+
+7. 限制、验证命令和留存
+----------------------
+限制：ABC UTF-8 <=128 KiB；草稿 JSON <=1 MiB；单行 <=8192 字符；最多 2048
+展开小节/声部、60000 音高片段、15000 实际播放音符、10000 拍点、1024 个修订；
+单音/和弦时值整数 1..1024 个 L 单位；每和弦 <=16 音。仅支持有完整 meter/key
+的 pinned canonical 语法。现有 parse_voice_score 对单小节曲谱不生成 Measure，
+此类源谱会明确拒绝；本次五份真实样本均非该情况。没有 include/宏/外部指令。
+修订 WAV 保持完整片段长度（最长原 worker 限制 900 秒）；长曲每修订占用较多
+磁盘，主程序应设配额和人工/策略留存，不应把 1024 理解成建议保存数量。
+
+轻量测试（包含 Node 纯函数断言和无 site-packages import 检查）：
+  & .venv/Scripts/python.exe -m unittest tests.test_score_editing -v
+
+模型环境合成回归（小 WAV renderer 是明确的 synthetic fixture，不当真实音色证据）：
+  & .private/transcription-20261010/route_b/venv/Scripts/python.exe `
+    -m unittest capabilities.score_lab.test_editing -v
+
+相关原转换器/渲染器回归：
+  & .private/transcription-20261010/route_b/venv/Scripts/python.exe `
+    -m unittest capabilities.score_lab.test_accompaniment capabilities.score_lab.test_renderer -v
+
+真实验证（先跑模型回归，再完整 copy 五份 samples，所有操作仅在副本）：
+  & .private/transcription-20261010/route_b/venv/Scripts/python.exe `
+    -m capabilities.score_lab.test_editing --real-samples
+
+每份副本先保存未改控制 revision，再用同一个 editor.mjs 升高一音半音并经真实
+CLI 提交。检查三声部、逐事件节奏、MusicXML 回读、MIDI 与 notes 的逐音一致性、
+MIDI 恰好一音升半音、44.1kHz FluidR3 WAV PCM 真实变化，以及全部原始文件
+（原样本和副本）的前后 SHA-256。不把容器头变化或 synthetic WAV 当音色证据。
+还有非法 ABC/外链、节奏、拍号、调号、漏声部、oversize、音域、旧版本、同 ID、
+源谱变化、路径越界反例；OS 并发锁、发布失败和渲染失败由合成回归覆盖。
+
+机器结果：output/outsource/usic-editing-result.json。
+真实产物保存在报告指向的 output/outsource/usic-editing-proof-<random>/，包含
+独立配置、完整样本副本、草稿、控制与半音修订，可直接试听/核验。
+没有 git commit，没有重启或停止原谱室/播放器程序。

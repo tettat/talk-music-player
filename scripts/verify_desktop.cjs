@@ -19,7 +19,8 @@ const {BackendController} = require('../desktop/backend.cjs');
         const page = await fetch(ready.url);
         assert.equal(page.status, 200);
         const sources = await (await fetch(ready.url + 'api/providers')).json();
-        assert.deepEqual(sources.providers.map(p => p.id), ['qq']);
+        assert.deepEqual(sources.providers.map(p => p.id), ['qq', 'netease']);
+        assert.equal(sources.providers.find(p => p.id === 'netease').capabilities.includes('login'), false);
         const account = await (await fetch(ready.url + 'api/account')).json();
         assert.equal(account.session, 'required');
         if (exitMode === 'pipe-eof') backend.child.stdin.end();
@@ -31,7 +32,7 @@ const {BackendController} = require('../desktop/backend.cjs');
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         assert.equal(offline, true);
-        results.push({exitMode, page: 200, providerIds: ['qq'], emptySession: true, portClosed: true});
+        results.push({exitMode, page: 200, providerIds: ['qq', 'netease'], emptySession: true, portClosed: true});
       } finally {await backend.stop();}
     }
     const output = path.join(root, 'output'); fs.mkdirSync(output, {recursive: true});

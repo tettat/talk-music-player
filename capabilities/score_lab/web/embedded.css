@@ -1,0 +1,17 @@
+/* Kimi Score Lab workbench, compact inside the existing Usic shell. */
+.embedded-back{font-size:22px;margin-right:18px}.embedded body{display:block;min-height:100%;height:100vh;overflow:auto}.embedded .sidebar{display:none}.embedded main{width:100%;max-width:none;padding:16px 27px 12px}.embedded .topbar{height:32px;margin-bottom:14px;justify-content:flex-start}.embedded .edition{margin-left:auto;font-size:9px}.embedded .song-header h1{font-size:25px;margin-bottom:5px}.embedded .eyebrow{font-size:9px;margin-bottom:5px}.embedded .song-meta{font-size:11px}.embedded .facts{margin:15px 0 12px}.embedded .workspace-toolbar{height:48px}.embedded .score-scroll,.embedded .roll-scroll{height:clamp(210px,calc(100vh - 420px),520px)}.embedded .transport{margin-top:13px;padding-top:12px}.embedded .compare-row{margin-bottom:7px}.embedded .controls{min-height:44px}.embedded .time-row{margin-top:5px}.embedded .score-foot{height:25px}.embedded .legend{font-size:9px;gap:12px}.embedded .song-header{align-items:center}.embedded .timeline{height:52px}.edit-toggle{margin-left:16px;padding:6px 11px;border:1px solid var(--line);border-radius:6px;font-size:11px}.edit-toggle[aria-pressed=true]{color:var(--green);background:#e8eddf;border-color:#b2bea4}.editor-toolbar{display:flex;gap:7px;align-items:center;padding:9px 20px;border-bottom:1px solid var(--line);font-size:11px;flex-wrap:wrap}.editor-toolbar button{border:1px solid var(--line);border-radius:5px;padding:5px 9px;background:#fafaf6}.editor-toolbar button:hover{background:#ecefe5}.editor-toolbar #edit-save{color:#fff;background:var(--green)}#edit-selection{margin-right:auto;color:var(--muted);min-width:80px}#edit-status{color:var(--green);font-size:10px}.edit-source{display:block;width:100%;height:170px;border:0;border-bottom:1px solid var(--line);resize:vertical;padding:15px 20px;background:#f8f8f2;font:11px/1.6 Consolas,monospace;color:#444b3b}.is-editing #score .abcjs-note{cursor:pointer}.is-editing #score .abcjs-note:hover{fill:#b89951;stroke:#b89951}.edit-selected{fill:#ad8e43!important;stroke:#ad8e43!important}@media(max-width:800px){.embedded main{padding:13px 16px}.embedded .legend{display:none}.embedded .song-header h1{font-size:22px}.embedded .score-scroll,.embedded .roll-scroll{height:240px}.embedded .parts{gap:4px}.embedded .parts button{padding:5px 7px;font-size:10px}}
+
+/* Show the entire first three-staff system without hiding the transport. */
+.embedded main {height:100vh; padding:18px 23px 12px;}
+.embedded .topbar {height:0; min-height:0; margin:0; position:relative;}
+.embedded .topbar .breadcrumb, .embedded .edition {display:none;}
+.embedded .embedded-back {position:absolute; top:0; left:-5px; margin:0;}
+.embedded .song-header {padding-left:30px; flex-shrink:0;}
+.embedded .facts {margin:13px 0 12px; flex-shrink:0;}
+.embedded .workspace {flex:1; min-height:240px;}
+.embedded .score-scroll, .embedded .roll-scroll {height:auto; max-height:none; min-height:120px; flex:1;}
+.embedded .score-scroll {padding:7px 18px 10px;}
+.embedded .transport {flex-shrink:0;}
+.editor-toolbar {flex-shrink:0;}
+.editor-toolbar select {font-size:11px; color:var(--green); background:#f8f9f1; border:1px solid var(--line); border-radius:4px; padding:4px;}
+@media (max-height:600px) {.embedded body {overflow:auto;} .embedded main {height:auto; min-height:100vh;} .embedded .score-scroll,.embedded .roll-scroll {height:280px; flex:none;}}

@@ -1,0 +1,12 @@
+{
+  "id": "score-lab",
+  "name": "谱室",
+  "version": 1,
+  "optional": true,
+  "execution": "local-owned-process",
+  "entry": "/extensions/score-lab/",
+  "hostGrants": ["authorized-track-audio", "local-audio-import"],
+  "limits": {"audioBytes": 67108864, "seconds": 900, "parallelWorkers": 1, "queuedJobs": 3},
+  "modelLicense": "CC-BY-NC-4.0",
+  "data": "user-profile/extensions/score-lab/data"
+}

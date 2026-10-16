@@ -39,11 +39,25 @@ def load_settings(root=ROOT, environ=None):
     if not config.is_absolute():
         config = root / config
     values = dict(DEFAULTS)
+    if env.get('TALK_PACKAGED') == '1':
+        for name in ('TALK_RUNTIME_ROOT', 'TALK_USER_DATA'):
+            value = env.get(name)
+            if (not isinstance(value, str) or not value.strip() or '\x00' in value
+                    or not Path(value).is_absolute()):
+                raise ValueError('CONFIG_PACKAGED_PATH_INVALID')
+        runtime, private = Path(env['TALK_RUNTIME_ROOT']).resolve(), Path(env['TALK_USER_DATA']).resolve()
+        values.update(python=str(runtime / 'base/python/Scripts/python.exe'), data_dir=str(private),
+                      qq_session_dir=str(private / 'qq'),
+                      analysis_python=str(private / 'capabilities/basic-pitch/python/python.exe'),
+                      basic_pitch_model=str(private / 'capabilities/basic-pitch/models/nmp.onnx'))
+        if 'TALK_CONFIG_FILE' not in env:
+            config = private / 'config.json'
     if config.is_file():
         if config.stat().st_size > 32768:
             raise ValueError('CONFIG_SIZE_REJECTED')
         try:
-            data = json.loads(config.read_text(encoding='utf-8-sig'))
+            data = json.loads(config.read_text(encoding='utf-8-sig'),
+                              parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
         except (ValueError, UnicodeError):
             raise ValueError('CONFIG_JSON_INVALID') from None
         if not isinstance(data, dict) or set(data) - set(DEFAULTS):
@@ -57,8 +71,16 @@ def load_settings(root=ROOT, environ=None):
         value = env.get('TALK_' + name.upper(), values[name])
         if not isinstance(value, str) or not value.strip() or '\x00' in value:
             raise ValueError('CONFIG_PATH_INVALID')
-        path = Path(value).expanduser()
-        values[name] = (path if path.is_absolute() else root / path).resolve()
+        # Same expansion contract as desktop/config.cjs (not ~other-user or bare ~).
+        if value.startswith(('~/', '~\\')):
+            value = str(Path.home() / value[2:])
+        path = Path(value)
+        base = Path(env['TALK_USER_DATA']) if env.get('TALK_PACKAGED') == '1' else root
+        values[name] = (path if path.is_absolute() else base / path).resolve()
+    if env.get('TALK_PACKAGED') == '1':
+        resources = Path(env['TALK_RUNTIME_ROOT']).resolve().parent
+        if any(values[name].is_relative_to(resources) for name in ('data_dir', 'qq_session_dir')):
+            raise ValueError('CONFIG_DATA_IN_RESOURCES')
     for name, minimum, maximum in (('port', 1024, 65535), ('ttl_seconds', 60, 172800)):
         value = values[name]
         if type(value) is not int or not minimum <= value <= maximum:

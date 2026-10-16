@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "source": "https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced",
+  "commit": "2db6684453297ee86dec0492842f2320b08182d9",
+  "license": "MIT",
+  "scope": "Reviewed normal weapi framing and cloudsearch/song_detail/song_url/lyric contracts only. Self-written minimal adapter; no upstream packages installed.",
+  "excluded": ["unblock", "alternate platform matching", "client injection", "protected cache conversion", "login and membership (deferred)"],
+  "dependencies": "Only existing pinned cryptography and miniaudio from the QQ runtime lock"
+}

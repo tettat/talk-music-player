@@ -1,6 +1,18 @@
 import {ListeningTracker} from '/listening.mjs';
 import {installWindowControls} from '/window-controls.mjs';
 installWindowControls();
+// Bootstrap compatibility: an older running server knows the original static
+// modules only. Load the new module after its feature handshake, never before it.
+let sourceName = source => ({qq: 'QQ', netease: '网易'}[source] || '—');
+let trackSource = track => track?.source || (track?.key?.startsWith('netease:') ? 'netease' : 'qq');
+let groupTracks = records => records.map(track => ({id: track.key, selected: track, variants: [track], allVariants: [track]}));
+let enqueueVersion = (queue, key, tracks, {next = false, current = null} = {}) => {
+  const result = queue.filter(k => k !== key);
+  if (next && current && current !== key) result.splice(Math.max(0, result.indexOf(current)+1), 0, key);
+  else result.push(key);
+  return {queue: result, blocked: false};
+};
+let mergeSearchPage, interleaveResults;
 const $ = id => document.getElementById(id);
 const audio = $('audio');
 const csrf = document.querySelector('meta[name="talk-csrf"]').content;
@@ -8,16 +20,24 @@ const fallback = '/assets/cover-default.svg';
 const tracks = new Map();
 let library = [], favorites = new Set(), playlists = [];
 let state = {queue: [], current: null, position: 0, volume: .8, mode: 'repeat'};
-let view = 'library', results = [], query = '', page = 1, hasMore = false;
+let view = 'library', results = [], query = '', hasMore = false;
 let account = {}, loading = null, playGeneration = 0, heroKey = null;
 let sourceKey = null, resumePosition = 0, pendingTrack = null, editingPlaylist = null;
 let authTimer, toastTimer, searchGeneration = 0, stateTimer, saving = Promise.resolve();
 let loadingSearch = false;
+let sourceFilter = 'all', searchSources = {}, displayQuery = '', preservingResults = false;
+let aggregationReady = false, legacyPage = 1;
+let providerResults = {qq: [], netease: []};
+const searchSelections = new Map();
 let statsDays = 30, statsGeneration = 0, statsTimer, historyOffset = 0, historyItems = [];
+let statsSource = 'all';
 let detailKey = null, detailTab = 'lyrics', detailGeneration = 0, lyricsData = null, lyricCurrent = -1;
 let lyricsFollow = true, analysisData = null;
 let listenWarningAt = 0;
 const lyricCache = new Map(), analysisCache = new Map();
+let desktopLyrics = {update() {}, lyricsChanged() {}, dispose() {}};
+let scoreModule = {render() {}, openTrack() {}, pause() {}};
+let scoreReady = false;
 
 const messages = {
   LOGIN_REQUIRED: '请连接账号', SOURCE_UNAVAILABLE: '这首歌暂不可播放',
@@ -28,6 +48,12 @@ const messages = {
   LYRICS_UNAVAILABLE: '歌词暂不可用', LYRICS_INVALID: '歌词格式不可用', LYRICS_LIMIT: '歌词过长',
   ANALYSIS_UNAVAILABLE: '分析暂不可用', ANALYSIS_BUSY: '正在分析，请稍后',
   ANALYSIS_FAILED: '分析未完成，请重试', ANALYSIS_TIMEOUT: '分析超时，请重试',
+  NETEASE_UNAVAILABLE: '网易云连接失败，请重试', NETEASE_SOURCE_UNAVAILABLE: '网易云暂未提供这首歌的完整音源',
+  NETEASE_FREE_ONLY: '网易云暂只支持免费歌曲', CAPABILITY_UNAVAILABLE: '暂不支持此操作',
+  SCORE_DISABLED: '请先启用谱室', SCORE_RUNTIME_MISSING: '请选择谱室能力包',
+  SCORE_BUSY: '请等待当前任务结束', SCORE_FAILED: '识谱未完成，请重试',
+  SCORE_UNAVAILABLE: '谱室暂不可用', SCORE_INPUT_MISSING: '请重新导入音频',
+  SCORE_NOT_RETRYABLE: '当前任务不可重试', SCORE_AUDIO_LIMIT: '音频须在 64 MB 以内',
 };
 
 async function api(path, data) {
@@ -100,10 +126,93 @@ function ingest(data, preserveState = false) {
   if (data.account) account = data.account;
 }
 function visibleKeys() {
-  if (view === 'search') return results;
+  if (view === 'search') return searchGroups().map(group => group.selected.key);
   if (view === 'favorites') return [...favorites];
   if (view.startsWith('playlist:')) return playlists.find(p => p.id === view.slice(9))?.keys || [];
   return library;
+}
+function searchGroups() {
+  return groupTracks(results.map(key => tracks.get(key)).filter(Boolean),
+    {selections: searchSelections, source: sourceFilter, current: state.current});
+}
+function sourceTag(track) {
+  const tag = node('span', 'source-tag', sourceName(trackSource(track)));
+  tag.title = trackSource(track) === 'netease' ? '网易云音乐' : 'QQ 音乐';
+  return tag;
+}
+function artistWithSource(element, value, track) {
+  element.replaceChildren(node('span', 'artist-text', value));
+  element.classList.add('has-source');
+  if (track) element.append(sourceTag(track));
+}
+function sourceCell(group) {
+  const cell = node('div', 'row-source');
+  const selected = group.selected;
+  if (group.variants.length > 1) {
+    const control = node('div', 'source-switch'); control.setAttribute('role', 'group');
+    control.setAttribute('aria-label', '选择来源：' + selected.title);
+    control.title = '歌名、歌手、专辑和时长匹配';
+    for (const track of [...group.variants].sort((a, b) => trackSource(a) === 'qq' ? -1 : 1)) {
+      const choice = node('button', 'source-choice', sourceName(trackSource(track))); choice.type = 'button';
+      choice.dataset.key = track.key;
+      const label = '使用' + sourceName(trackSource(track)) + '版本';
+      choice.title = label; choice.setAttribute('aria-label', label);
+      choice.setAttribute('aria-pressed', track.key === selected.key); choice.tabIndex = track.key === selected.key ? 0 : -1;
+      choice.classList.toggle('is-restricted', ['requires_login', 'unavailable'].includes(track.availability));
+      choice.classList.toggle('is-playing-source', track.key === sourceKey && !audio.paused);
+      const choose = () => {
+        searchSelections.set(group.id, track.key); renderList();
+        const row = [...$('track-list').children].find(row => row.dataset.group === group.id);
+        [...row?.querySelectorAll('.source-choice') || []].find(button => button.dataset.key === track.key)?.focus();
+      };
+      choice.addEventListener('click', choose);
+      choice.addEventListener('keydown', event => {
+        if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+        event.preventDefault();
+        searchSelections.set(group.id, group.variants.find(t => t.key !== track.key).key);
+        renderList();
+        const row = [...$('track-list').children].find(row => row.dataset.group === group.id);
+        row?.querySelector('.source-choice[aria-pressed="true"]')?.focus();
+      });
+      control.append(choice);
+    }
+    cell.append(control);
+  } else cell.append(sourceTag(selected));
+  if (selected.availability === 'requires_login' || selected.availability === 'unavailable') {
+    cell.append(node('span', 'availability-tag', selected.availability === 'requires_login' ? '需授权' : '不可播'));
+  }
+  return cell;
+}
+function renderSearchStatus() {
+  $('search-source-filter').hidden = view !== 'search' || !aggregationReady;
+  const status = $('search-source-status'); status.replaceChildren(); status.hidden = view !== 'search' || !aggregationReady;
+  document.querySelectorAll('[data-search-source]').forEach(button => {
+    const active = button.dataset.searchSource === sourceFilter;
+    button.setAttribute('aria-pressed', active); button.tabIndex = active ? 0 : -1;
+  });
+  if (view !== 'search' || !aggregationReady) return;
+  for (const source of ['qq', 'netease']) {
+    if (sourceFilter !== 'all' && sourceFilter !== source) continue;
+    const info = searchSources[source]; if (!info) continue;
+    const item = node('span', 'source-state');
+    item.append(node('span', 'source-state-name', sourceName(source)));
+    if (info.status === 'loading') item.append(node('span', 'source-state-text', '搜索中…'));
+    else if (info.status === 'error') {
+      item.classList.add('has-error');
+      const needsLogin = source === 'qq' && info.code === 'LOGIN_REQUIRED';
+      item.append(node('span', 'source-state-text', needsLogin ? '未连接' : info.code === 'BUSY' ? '忙碌中' : '连接失败'));
+      const retry = node('button', 'source-retry', needsLogin ? '连接' : '重试'); retry.type = 'button';
+      retry.setAttribute('aria-label', needsLogin ? '连接 QQ 账号' : '重试' + sourceName(source) + '搜索');
+      retry.disabled = loadingSearch && !needsLogin;
+      retry.addEventListener('click', () => needsLogin ? openAuth() : search(true, source)); item.append(retry);
+    } else {
+      const count = results.filter(key => trackSource(tracks.get(key)) === source).length;
+      item.append(node('span', 'source-state-text', count ? String(count) : '无匹配'));
+    }
+    status.append(item);
+  }
+  const groups = searchGroups(), duplicates = groups.filter(group => group.variants.length > 1).length;
+  if (duplicates) status.append(node('span', 'source-merged', '已合并 ' + duplicates + ' 组'));
 }
 function persist(immediate = false) {
   clearTimeout(stateTimer);
@@ -141,49 +250,62 @@ function renderNavigation() {
   }
 }
 function renderList() {
+  renderSearchStatus();
   const insights = view === 'insights';
+  const scores = view === 'score';
+  scoreModule.render(scores);
   $('insights-view').hidden = !insights;
-  for (const el of [$('hero'), document.querySelector('.list-head'), $('track-list'), $('empty-state'), $('load-more')]) el.hidden = insights;
-  if (insights) {heroKey = null; $('view-actions').hidden = true; return;}
-  const keys = visibleKeys().filter(key => tracks.has(key));
+  for (const el of [$('hero'), document.querySelector('.list-head'), $('track-list'), $('empty-state'), $('load-more')]) el.hidden = insights || scores;
+  if (insights || scores) {heroKey = null; $('view-actions').hidden = true; $('search-source-status').hidden = true; return;}
+  const groups = view === 'search' ? searchGroups() : visibleKeys().filter(key => tracks.has(key))
+    .map(key => ({id: key, selected: tracks.get(key), variants: [tracks.get(key)], allVariants: [tracks.get(key)]}));
+  const keys = groups.map(group => group.selected.key);
   const playlist = view.startsWith('playlist:') && playlists.find(p => p.id === view.slice(9));
   $('view-actions').hidden = !playlist;
-  $('page-title').textContent = view === 'search' ? query : view === 'favorites' ? '收藏' : playlist ? playlist.name : '音乐库';
+  $('page-title').textContent = view === 'search' ? displayQuery || query : view === 'favorites' ? '收藏' : playlist ? playlist.name : '音乐库';
   $('track-count').textContent = loadingSearch ? '' : `${keys.length}`;
-  $('track-list').classList.toggle('is-loading', loadingSearch);
+  $('track-list').classList.toggle('is-loading', preservingResults);
+  $('track-list').setAttribute('aria-busy', view === 'search' && loadingSearch);
   $('empty-state').hidden = Boolean(keys.length) || loadingSearch;
+  const failed = Object.entries(searchSources).filter(([name]) => sourceFilter === 'all' || sourceFilter === name);
+  $('empty-state').querySelector('.empty-label').textContent = view === 'search'
+    ? failed.length && failed.every(([, info]) => info.status === 'error') ? '搜索未完成' : '没有找到匹配歌曲' : '暂无';
   const list = $('track-list'); list.replaceChildren();
-  for (const [index, key] of keys.entries()) {
-    const track = tracks.get(key);
-    const row = node('li', 'track-row'); row.dataset.key = key;
-    row.classList.toggle('is-active', key === state.current);
-    row.classList.toggle('is-playing', key === state.current && !audio.paused);
-    const play = button('play', '播放 ' + track.title, () => playTrack(key, keys), 'row-index');
+  for (const [index, group] of groups.entries()) {
+    const track = group.selected, key = track.key, label = track.title + '（' + sourceName(trackSource(track)) + '）';
+    const row = node('li', 'track-row'); row.dataset.key = key; row.dataset.group = group.id;
+    row.classList.toggle('is-active', group.allVariants.some(t => t.key === state.current));
+    row.classList.toggle('is-playing', group.allVariants.some(t => t.key === sourceKey) && !audio.paused);
+    row.classList.toggle('is-blocked', track.availability === 'unavailable');
+    const start = () => key === state.current && (sourceKey || loading) ? toggle() : playTrack(key, keys);
+    const play = button('play', '播放 ' + label, start, 'row-index');
+    play.disabled = track.availability === 'unavailable';
     const number = node('span', 'row-number', String(index + 1).padStart(2, '0'));
     play.prepend(number);
     const art = cover(track, 'row-cover');
     const info = node('div', 'row-info');
     const title = node('button', 'row-title', track.title); title.type = 'button';
-    title.title = track.title; title.addEventListener('click', () => playTrack(key, keys));
+    title.title = label; title.addEventListener('click', start);
     info.append(title, node('span', 'row-artist', track.artist));
     const album = node('span', 'row-album', track.album); album.title = track.album;
-    const like = button('heart', favorites.has(key) ? '取消收藏 ' + track.title : '收藏 ' + track.title,
+    const like = button('heart', (favorites.has(key) ? '取消收藏 ' : '收藏 ') + label,
       () => favorite(key), 'icon-btn row-like');
     like.classList.toggle('is-favorite', favorites.has(key)); like.setAttribute('aria-pressed', favorites.has(key));
-    row.append(play, art, info, album, node('span', 'row-duration', time(track.duration)), like,
-      button('more', '更多 ' + track.title, event => trackMenu(key, event), 'icon-btn row-more'));
+    row.append(play, art, info, album, sourceCell(group), node('span', 'row-duration', time(track.duration)), like,
+      button('more', '更多 ' + label, event => trackMenu(key, event), 'icon-btn row-more'));
     row.addEventListener('dblclick', event => {
-      if (!event.target.closest('button')) playTrack(key, keys);
+      if (!event.target.closest('button')) start();
     });
     list.append(row);
   }
+  if (aggregationReady) hasMore = Object.entries(searchSources).some(([name, info]) => (sourceFilter === 'all' || sourceFilter === name) && info.hasMore);
   $('load-more').hidden = view !== 'search' || !hasMore || loadingSearch;
   heroKey = keys.includes(state.current) ? state.current : keys[0] || null;
   $('hero').hidden = !heroKey;
   if (heroKey) {
     const track = tracks.get(heroKey);
     $('hero-title').textContent = track.title;
-    $('hero-artist').textContent = track.artist + (track.album !== '—' ? ' · ' + track.album : '');
+    artistWithSource($('hero-artist'), track.artist + (track.album !== '—' ? ' · ' + track.album : ''), track);
     $('hero-cover').src = track.cover || fallback;
     $('hero-like').classList.toggle('is-favorite', favorites.has(heroKey));
     $('hero-like').setAttribute('aria-pressed', favorites.has(heroKey));
@@ -194,9 +316,10 @@ function renderList() {
 function renderPlayer() {
   const track = tracks.get(state.current);
   $('player-title').textContent = track?.title || '—';
-  $('player-artist').textContent = track?.artist || '';
+  artistWithSource($('player-artist'), track?.artist || '', track);
   $('player-cover').src = track?.cover || fallback;
   $('player-like').disabled = !track;
+  if ($('player-score')) $('player-score').disabled = !track;
   $('detail-toggle').disabled = !track && !heroKey;
   $('mobile-detail-toggle').disabled = !track && !heroKey;
   $('player-like').classList.toggle('is-favorite', favorites.has(state.current));
@@ -215,6 +338,7 @@ function renderPlayer() {
   $('volume').style.setProperty('--p', state.volume * 100 + '%');
   updateProgress();
   updateLyricPosition();
+  desktopLyrics.update();
 }
 function updateProgress() {
   const duration = Number.isFinite(audio.duration) ? audio.duration : tracks.get(state.current)?.duration || 0;
@@ -238,7 +362,8 @@ function renderQueue() {
     row.classList.toggle('is-active', state.current === key);
     const main = node('button', 'queue-song'); main.type = 'button';
     const info = node('span', 'queue-info');
-    info.append(node('span', 'queue-name', track.title), node('span', 'queue-artist', track.artist));
+    const artist = node('span', 'queue-artist'); artistWithSource(artist, track.artist, track);
+    info.append(node('span', 'queue-name', track.title), artist);
     main.append(cover(track, 'queue-cover'), info);
     main.addEventListener('click', () => playTrack(key));
     row.append(main, button('close', '移出队列 ' + track.title, () => {
@@ -255,36 +380,91 @@ async function favorite(key) {
   try { ingest(await api('/api/favorite', {key, enabled: !favorites.has(key)}), true); render(); }
   catch (error) {fail(error);}
 }
-async function search(append = false) {
+async function search(append = false, retrySource = null) {
   const value = $('search-input').value.trim(); if (!value) {showView('library'); return;}
+  if (!aggregationReady) {
+    // A currently running pre-upgrade backend can still serve new static files.
+    // Keep its QQ workflow usable until the user deliberately restarts Electron.
+    const generation = ++searchGeneration; query = value; displayQuery = value; view = 'search'; loadingSearch = true;
+    if (!append) {results = []; legacyPage = 1; hasMore = false;}
+    $('search-form').classList.add('is-loading'); render();
+    try {
+      const data = await api('/api/search', {query: value, page: append ? legacyPage+1 : 1});
+      if (generation !== searchGeneration) return;
+      data.tracks.forEach(track => tracks.set(track.key, track));
+      results = [...new Set([...results, ...data.tracks.map(track => track.key)])];
+      legacyPage = append ? legacyPage+1 : 1; hasMore = data.hasMore;
+    } catch (error) {if (generation === searchGeneration) fail(error);}
+    finally {if (generation === searchGeneration) {loadingSearch = false; $('search-form').classList.remove('is-loading'); render();}}
+    return;
+  }
+  if (append && value !== query) {append = false; retrySource = null;}
+  const names = retrySource ? [retrySource] : append
+    ? ['qq', 'netease'].filter(name => (sourceFilter === 'all' || sourceFilter === name) && searchSources[name]?.hasMore)
+    : ['qq', 'netease'];
+  if (!names.length) return;
   const generation = ++searchGeneration;
   query = value; view = 'search'; loadingSearch = true;
-  if (!append) {results = []; page = 1; hasMore = false;}
+  let replaced = append;
+  if (!append) {sourceFilter = 'all'; searchSelections.clear(); searchSources = {}; hasMore = false;}
+  preservingResults = !append && Boolean(results.length);
+  const pages = Object.fromEntries(names.map(name => [name, append ? (searchSources[name]?.page || 0)+1 : 1]));
+  for (const name of names) searchSources[name] = {...searchSources[name], status: 'loading'};
   $('search-form').classList.add('is-loading'); render();
   try {
-    const data = await api('/api/search', {query, page: append ? page + 1 : 1});
-    if (generation !== searchGeneration) return;
-    data.tracks.forEach(track => tracks.set(track.key, track));
-    results = [...new Set([...results, ...data.tracks.map(t => t.key)])];
-    page = append ? page + 1 : 1; hasMore = data.hasMore;
-    account = await api('/api/account');
-  } catch (error) {if (generation === searchGeneration) fail(error);}
-  finally {
+    await Promise.all(names.map(async name => {
+      try {
+        let data;
+        // Initial account verification or a discarded older search can still
+        // own that source's lock. Retry only BUSY, never switch platforms.
+        for (let attempt = 0; attempt < 8; attempt++) {
+          if (generation !== searchGeneration) return;
+          data = await api('/api/search', {query: value, source: 'all', pages: {[name]: pages[name]}});
+          if (data.sources?.[name]?.code !== 'BUSY' || attempt === 7) break;
+          await new Promise(resolve => setTimeout(resolve, 350));
+        }
+        if (generation !== searchGeneration) return;
+        if (data.sources?.[name]?.status === 'ready') {
+          if (!replaced) {results = []; providerResults = {qq: [], netease: []}; displayQuery = value; replaced = true; preservingResults = false;}
+          data.tracks.forEach(track => tracks.set(track.key, track));
+          providerResults[name] = [...new Set([...providerResults[name], ...data.tracks.map(track => track.key)])];
+          results = interleaveResults(providerResults);
+        }
+        searchSources = mergeSearchPage(searchSources, data.sources);
+        if (data.sources?.qq?.code === 'LOGIN_REQUIRED') account.session = 'required';
+      } catch (error) {
+        if (generation !== searchGeneration) return;
+        searchSources = mergeSearchPage(searchSources, {[name]: {status: 'error', code: error.code || 'PROVIDER_UNAVAILABLE'}});
+      } finally {
+        if (generation === searchGeneration) {
+          loadingSearch = Object.values(searchSources).some(info => info.status === 'loading'); render();
+        }
+      }
+    }));
+  } finally {
     if (generation === searchGeneration) {
-      loadingSearch = false; $('search-form').classList.remove('is-loading'); render();
+      loadingSearch = false; preservingResults = false; $('search-form').classList.remove('is-loading'); render();
     }
   }
 }
 async function playTrack(key, queue, restore = false) {
   if (!tracks.has(key)) return;
   if (loading === key) return;
+  const selected = tracks.get(key);
+  if (selected.availability === 'unavailable') {toast('这首歌暂不可播放'); return;}
+  if (trackSource(selected) === 'netease' && selected.availability === 'requires_login') {toast(messages.NETEASE_FREE_ONLY); return;}
+  const group = searchGroups().find(group => group.allVariants.some(track => track.key === key));
+  if (group) searchSelections.set(group.id, key);
   const generation = ++playGeneration;
   listening.setTrack(key, tracks.get(key).duration);
   audio.pause(); audio.removeAttribute('src'); audio.load(); sourceKey = null;
   loading = key; resumePosition = restore ? state.position : 0;
   state.current = key; state.position = resumePosition;
-  if (queue?.length) state.queue = [...new Set(queue)];
-  else if (!state.queue.includes(key)) state.queue.push(key);
+  if (queue?.length) state.queue = [...new Set(queue)].filter(key => {
+    const track = tracks.get(key);
+    return track && track.availability !== 'unavailable' && !(trackSource(track) === 'netease' && track.availability === 'requires_login');
+  });
+  else state.queue = enqueueVersion(state.queue, key, tracks, {current: state.current}).queue;
   persist(); render();
   if (!$('detail-panel').hidden) openDetail(key, detailTab);
   try {
@@ -366,14 +546,17 @@ function showMenu(event, actions) {
   menu.querySelector('button')?.focus();
 }
 function enqueue(key, next) {
-  state.queue = state.queue.filter(k => k !== key);
-  if (next && state.current && state.current !== key) state.queue.splice(Math.max(0, state.queue.indexOf(state.current) + 1), 0, key);
-  else state.queue.push(key);
+  const track = tracks.get(key);
+  if (trackSource(track) === 'netease' && track.availability === 'requires_login') {toast(messages.NETEASE_FREE_ONLY); return;}
+  const result = enqueueVersion(state.queue, key, tracks, {next, current: state.current, playing: !audio.paused || Boolean(loading)});
+  if (result.blocked) {toast('正在播放另一来源版本'); return;}
+  state.queue = result.queue;
   persist(); renderQueue(); toast(next ? '已设为下一首' : '已加入队列');
 }
 function trackMenu(key, event) {
   const actions = [['next', '下一首播放', () => enqueue(key, true)],
     ['queue', '加入队列', () => enqueue(key, false)], ['plus', '加至列表', () => openAdd(key)]];
+  if (scoreReady) actions.push(['score', '识谱', () => scoreModule.openTrack(key)]);
   actions.push(['detail', '歌词', () => openDetail(key, 'lyrics')], ['chart', '分析', () => openDetail(key, 'analysis')]);
   if (view.startsWith('playlist:')) actions.push(['close', '从列表移除', () => playlistAction(view.slice(9), 'remove', key)]);
   showMenu(event, actions);
@@ -438,11 +621,16 @@ async function pollAuth() {
       if ($('auth-qr').getAttribute('src') !== src) $('auth-qr').src = src;
     } else $('auth-qr').removeAttribute('src');
     if (account.auth === 'done') {
-      ++playGeneration; loading = null; sourceKey = null;
-      listening.setTrack(null);
-      audio.pause(); audio.removeAttribute('src'); audio.load(); renderPlayer();
+      if (trackSource(tracks.get(state.current)) === 'qq') {
+        ++playGeneration; loading = null; sourceKey = null;
+        listening.setTrack(null);
+        audio.pause(); audio.removeAttribute('src'); audio.load(); renderPlayer();
+      }
       clearTimeout(authTimer);
-      setTimeout(() => {$('auth-dialog').close();}, 600); return;
+      setTimeout(() => {
+        $('auth-dialog').close();
+        if (view === 'search' && !loadingSearch && searchSources.qq?.code === 'LOGIN_REQUIRED') search(true, 'qq');
+      }, 600); return;
     }
   } catch (error) {$('auth-status').textContent = messages[error.code] || '连接未完成';}
   if ($('auth-dialog').open) authTimer = setTimeout(pollAuth, 1200);
@@ -453,7 +641,7 @@ function openAuth() {
 }
 async function startAuth(provider) {
   try {
-    audio.pause();
+    if (trackSource(tracks.get(state.current)) === 'qq') audio.pause();
     await api('/api/auth/start', {provider});
     clearTimeout(authTimer); pollAuth();
   } catch (error) {fail(error);}
@@ -525,18 +713,31 @@ function dailyChart(points) {
 async function loadStats(reset = true) {
   const generation = ++statsGeneration;
   try {
-    const [summary, history] = await Promise.all([api('/api/stats?days=' + statsDays), api('/api/history')]);
+    const [summary, history] = await Promise.all([api('/api/stats?days=' + statsDays + '&source=' + statsSource),
+      api('/api/history?source=' + statsSource)]);
     if (generation !== statsGeneration || view !== 'insights') return;
     $('stat-time').textContent = shortDuration(summary.totalSeconds);
     $('stat-plays').textContent = summary.playCount; $('stat-songs').textContent = summary.songCount;
     document.querySelectorAll('[data-days]').forEach(el => el.setAttribute('aria-pressed', Number(el.dataset.days) === statsDays));
+    document.querySelectorAll('[data-stats-source]').forEach(el => {
+      const active = el.dataset.statsSource === statsSource;
+      el.setAttribute('aria-pressed', active); el.tabIndex = active ? 0 : -1;
+    });
+    $('stat-sources').hidden = !summary.totalSeconds || !aggregationReady;
+    const shares = summary.bySource || [], total = shares.reduce((sum, row) => sum + row.seconds, 0);
+    const qqShare = total ? Math.round((shares.find(row => row.source === 'qq')?.seconds || 0) / total * 100) : 0;
+    $('source-share').style.setProperty('--qq-share', qqShare + '%');
+    const shareLabel = 'QQ ' + qqShare + '% · 网易 ' + (100-qqShare) + '%';
+    $('source-share-label').textContent = shareLabel;
+    $('source-share').setAttribute('aria-label', '按听歌时长：' + shareLabel);
     $('stats-chart').hidden = !summary.totalSeconds;
     if (summary.totalSeconds) dailyChart(summary.daily);
     const topTracks = $('stats-top-tracks'); topTracks.replaceChildren();
     for (const [index, item] of summary.topTracks.entries()) {
       tracks.set(item.track.key, item.track);
       const row = node('button', 'top-row'); row.type = 'button'; row.title = '播放 ' + item.track.title;
-      const info = node('span', 'top-info'); info.append(node('span', 'top-name', item.track.title), node('span', 'top-sub', item.track.artist));
+      const info = node('span', 'top-info'), artist = node('span', 'top-sub'); artistWithSource(artist, item.track.artist, item.track);
+      info.append(node('span', 'top-name', item.track.title), artist);
       row.append(node('span', 'top-rank', String(index+1).padStart(2, '0')), cover(item.track, 'top-cover'), info,
         node('span', 'top-count', shortDuration(item.seconds)));
       row.addEventListener('click', () => playTrack(item.track.key));
@@ -563,7 +764,8 @@ function renderHistory(hasMore) {
     tracks.set(item.track.key, item.track);
     const row = node('button', 'history-row'); row.type = 'button';
     row.title = `${item.track.title} · ${Math.round(item.coverage * 100)}%`;
-    const info = node('span', 'row-info'); info.append(node('span', 'row-title', item.track.title), node('span', 'row-artist', item.track.artist));
+    const info = node('span', 'row-info'), artist = node('span', 'row-artist'); artistWithSource(artist, item.track.artist, item.track);
+    info.append(node('span', 'row-title', item.track.title), artist);
     row.append(cover(item.track, 'row-cover'), info, node('span', 'history-time', formatter.format(item.startedAt*1000)),
       node('span', 'row-duration', time(item.seconds)));
     row.addEventListener('click', () => playTrack(item.track.key));
@@ -582,7 +784,8 @@ function closeDetail(focus = true) {
 function openDetail(key, tab = 'lyrics') {
   const track = tracks.get(key); if (!track) return;
   detailKey = key; $('detail-panel').hidden = false; $('queue-panel').hidden = true; renderQueue();
-  $('detail-cover').src = track.cover || fallback; $('detail-title').textContent = track.title; $('detail-artist').textContent = track.artist;
+  $('detail-cover').src = track.cover || fallback; $('detail-title').textContent = track.title;
+  artistWithSource($('detail-artist'), track.artist, track);
   for (const id of ['detail-toggle', 'mobile-detail-toggle']) {$(id).classList.add('is-active'); $(id).setAttribute('aria-expanded', 'true');}
   setDetailTab(tab);
 }
@@ -594,9 +797,9 @@ function setDetailTab(tab) {
   }
   $('lyrics-view').hidden = tab !== 'lyrics'; $('analysis-view').hidden = tab !== 'analysis';
   if (tab === 'lyrics') {lyricsData = lyricCache.get(detailKey) || null; renderLyrics(); if (!lyricsData) loadLyrics(detailKey, generation);}
-  else {analysisData = analysisCache.get(detailKey) || null; renderAnalysis(); if (!analysisData) loadAnalysis(detailKey, generation);}
+  else {analysisData = analysisCache.get(detailKey) || null; renderAnalysis(); loadAnalysis(detailKey, generation);}
 }
-async function taskResult(path, payload, kind, generation) {
+async function taskResult(path, payload, kind, generation, onProgress = () => {}) {
   let result;
   for (let attempt = 0; attempt < 30; attempt++) {
     if (generation !== detailGeneration) return null;
@@ -605,11 +808,16 @@ async function taskResult(path, payload, kind, generation) {
   }
   if (!result) throw Object.assign(new Error(), {code: 'NETWORK_TIMEOUT'});
   if (result.status === 'ready') return result[kind];
+  return pollTask(result, kind, generation, onProgress);
+}
+async function pollTask(result, kind, generation, onProgress = () => {}) {
+  if (result.status === 'error') throw Object.assign(new Error(), {code: result.code});
   for (let attempt = 0; attempt < 600; attempt++) {
     if (generation !== detailGeneration) return null;
     const job = await api('/api/jobs/' + result.job);
     if (job.status === 'ready') return job[kind];
     if (job.status === 'error') throw Object.assign(new Error(), {code: job.code});
+    onProgress(job);
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   throw Object.assign(new Error(), {code: 'NETWORK_TIMEOUT'});
@@ -621,6 +829,7 @@ async function loadLyrics(key, generation, refresh = false) {
     const result = await taskResult('/api/lyrics', {key, refresh}, 'lyrics', generation);
     if (!result) return;
     lyricCache.set(key, result);
+    desktopLyrics.lyricsChanged(key, result);
     if (generation === detailGeneration && detailKey === key) {lyricsData = result; renderLyrics();}
   } catch (error) {
     if (generation === detailGeneration) {$('lyrics-status').textContent = messages[error.code] || '暂不可用'; if (error.code === 'LOGIN_REQUIRED') openAuth(false);}
@@ -663,9 +872,23 @@ async function loadAnalysis(key, generation) {
   try {
     const result = await api('/api/analysis/' + key);
     if (generation !== detailGeneration) return;
-    if (result.status === 'loading') {runAnalysis(false); return;}
     if (result.analysis) {analysisCache.set(key, result.analysis); analysisData = result.analysis; renderAnalysis();}
-  } catch (error) {if (generation === detailGeneration) $('analysis-status').textContent = messages[error.code] || '暂不可用';}
+    if (result.status === 'loading') {
+      analysisProgress(result, generation);
+      const analysis = await pollTask(result, 'analysis', generation, job => analysisProgress(job, generation));
+      if (analysis) analysisCache.set(key, analysis);
+      if (analysis && generation === detailGeneration) {analysisData = analysis; renderAnalysis();}
+    } else if (result.status === 'error') throw Object.assign(new Error(), {code: result.code});
+  } catch (error) {if (generation === detailGeneration) {
+    $('analysis-status').textContent = messages[error.code] || '暂不可用';
+    $('analysis-run').textContent = '重试';
+    $('analysis-run').disabled = false; $('analysis-run').classList.remove('is-loading');
+  }}
+}
+function analysisProgress(job, generation) {
+  if (generation !== detailGeneration) return;
+  $('analysis-run').disabled = true; $('analysis-run').classList.add('is-loading');
+  $('analysis-status').textContent = job.phase === 'audio' ? '准备音频' : '分析中';
 }
 function renderAnalysis() {
   const result = $('analysis-result'); result.replaceChildren();
@@ -698,12 +921,27 @@ function renderAnalysis() {
 $('history-more').addEventListener('click', async () => {
   const generation = statsGeneration; $('history-more').disabled = true;
   try {
-    const data = await api('/api/history?offset=' + historyOffset);
+    const data = await api('/api/history?offset=' + historyOffset + '&source=' + statsSource);
     if (generation !== statsGeneration || view !== 'insights') return;
     historyItems.push(...data.items); historyOffset += data.items.length; renderHistory(data.hasMore);
   } catch (error) {fail(error);} finally {$('history-more').disabled = false;}
 });
 document.querySelectorAll('[data-days]').forEach(el => el.addEventListener('click', () => {statsDays = Number(el.dataset.days); loadStats(true);}));
+function installSourceFilter(attribute, choose) {
+  const buttons = [...document.querySelectorAll('[' + attribute + ']')];
+  for (const [index, button] of buttons.entries()) {
+    button.addEventListener('click', () => choose(button.getAttribute(attribute)));
+    button.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length-1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next].click(); buttons[next].focus();
+    });
+  }
+}
+installSourceFilter('data-search-source', source => {sourceFilter = source; closeMenu(); renderList();});
+installSourceFilter('data-stats-source', source => {statsSource = source; loadStats(true);});
 $('detail-toggle').addEventListener('click', () => {if (!$('detail-panel').hidden) closeDetail(); else openDetail(state.current || heroKey);});
 $('detail-close').addEventListener('click', () => closeDetail());
 $('detail-cover').addEventListener('error', () => {$('detail-cover').src = fallback;});
@@ -725,7 +963,7 @@ async function runAnalysis(refresh = Boolean(analysisData)) {
   const key = detailKey, generation = detailGeneration;
   $('analysis-run').disabled = true; $('analysis-run').classList.add('is-loading'); $('analysis-status').textContent = '分析中';
   try {
-    const result = await taskResult('/api/analyze', {key, refresh}, 'analysis', generation);
+    const result = await taskResult('/api/analyze', {key, refresh}, 'analysis', generation, job => analysisProgress(job, generation));
     if (!result) return;
     analysisCache.set(key, result);
     if (generation === detailGeneration) {analysisData = result; renderAnalysis();}
@@ -807,16 +1045,18 @@ audio.addEventListener('loadedmetadata', () => {
 let lastSaved = 0;
 audio.addEventListener('timeupdate', () => {
   updateProgress();
-  listening.tick(); updateLyricPosition();
+  listening.tick(); updateLyricPosition(); desktopLyrics.update();
   if (sourceKey && Date.now() - lastSaved > 5000) {state.position = audio.currentTime; persist(); lastSaved = Date.now();}
 });
 audio.addEventListener('play', () => {renderPlayer(); renderList();
+  scoreModule.pause();
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';});
 audio.addEventListener('pause', () => {
   if (sourceKey) {state.position = audio.currentTime; persist(true);}
   renderPlayer(); renderList(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
 });
 audio.addEventListener('ended', () => advance(1, true));
+for (const event of ['seeking', 'seeked', 'playing', 'waiting']) audio.addEventListener(event, () => desktopLyrics.update());
 audio.addEventListener('error', () => {
   if (!sourceKey) return;
   sourceKey = null; loading = null; renderPlayer(); toast('播放中断，请重试');
@@ -829,6 +1069,7 @@ if ('mediaSession' in navigator) {
   }
 }
 window.addEventListener('pagehide', () => {
+  desktopLyrics.dispose();
   listening.finish('close', true);
   if (sourceKey) state.position = audio.currentTime;
   fetch('/api/state', {method: 'POST', keepalive: true,
@@ -837,7 +1078,33 @@ window.addEventListener('pagehide', () => {
 window.addEventListener('pageshow', event => {if (event.persisted && sourceKey && !audio.paused) {listening.start(); listening.reset();}});
 
 try {
-  ingest(await api('/api/library')); audio.volume = state.volume; render();
+  const [snapshot, features] = await Promise.all([api('/api/library'), api('/api/features')]);
+  aggregationReady = features.aggregation === true;
+  if (aggregationReady) ({groupTracks, enqueueVersion, mergeSearchPage, interleaveResults, sourceName, trackSource} = await import('/aggregation.mjs'));
+  $('stats-source-filter').hidden = !aggregationReady;
+  ingest(snapshot); audio.volume = state.volume; render();
+  if (features.scoreLab) {
+    try {
+      const {installScoreExtension} = await import('/score-extension.mjs');
+      scoreModule = installScoreExtension({api, showView, getTrack: key => tracks.get(key),
+        getCurrent: () => ({key: state.current, position: sourceKey ? audio.currentTime : state.position}),
+        onError: fail, toast, pausePlayer: () => audio.pause()});
+      scoreReady = true; $('hero-score').hidden = false;
+      $('hero-score').addEventListener('click', () => scoreModule.openTrack(heroKey));
+    } catch { /* Optional capability must never prevent music playback. */ }
+  }
+  if (features.desktopLyrics && window.usicLyrics) {
+    try {
+      const {installDesktopLyrics} = await import('/desktop-lyrics.mjs');
+      desktopLyrics = installDesktopLyrics({
+        getPlayback: () => ({track: tracks.get(state.current),
+          position: sourceKey === state.current ? audio.currentTime : state.position,
+          loading: Boolean(loading),
+          playing: Boolean(sourceKey === state.current && !audio.paused && !audio.ended), canSkip: Boolean(state.queue.length)}),
+        api, cache: lyricCache, actions: {previous: () => advance(-1), 'toggle-play': toggle, next: () => advance(1)}, onError: fail,
+      });
+    } catch { /* Optional native feature must never prevent normal playback. */ }
+  }
   // No auto-play, no auto-QR, no official-client launch, and no misleading online badge from disk alone.
   api('/api/account/verify', {}).then(data => {account = data; renderAccount();}).catch(error => {
     if (error.code === 'LOGIN_REQUIRED') {account.session = 'required'; renderAccount();}

@@ -1,6 +1,7 @@
 """Synthetic subprocess boundaries; the separate live QA proves actual ONNX inference."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -49,6 +50,7 @@ class RunnerTests(unittest.TestCase):
         def child(args, **kwargs):
             self.assertEqual(args[0], str(runner.PYTHON)); self.assertEqual(args[1:3], ['-I', '-B'])
             self.assertFalse(kwargs['shell']); self.assertEqual(kwargs['timeout'], 180)
+            self.assertEqual(kwargs['stdin'], subprocess.DEVNULL)
             self.assertEqual(kwargs['env']['HF_HUB_OFFLINE'], '1')
             self.assertNotIn('USERPROFILE', kwargs['env']); self.assertNotIn('QQ_COOKIE', kwargs['env'])
             (self.work/'result.json').write_text(json.dumps(self.raw()))
@@ -71,6 +73,51 @@ class RunnerTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0)
             with self.assertRaises(PlayerError) as caught: self.execute(child)
             self.assertEqual(caught.exception.code, 'ANALYSIS_INVALID')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows synchronous owner-pipe regression')
+    def test_child_starts_while_desktop_owner_is_reading_stdin(self):
+        """Real Python startup/stdio, synthetic model payload; no model/network required."""
+        probe = self.work / 'synthetic_probe.py'
+        probe.write_text(
+            'import json,sys\nfrom pathlib import Path\n'
+            'Path(sys.argv[sys.argv.index("--output")+1]).write_text('
+            + repr(json.dumps(self.raw())) + ',encoding="utf-8")\n', encoding='utf-8')
+        driver = self.work / 'desktop_owner.py'
+        driver.write_text('''import os,sys,threading,time
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+from process_lifetime import own_process_tree
+own_process_tree()
+import analysis_runner as runner
+runner.ready=lambda:True
+runner.PYTHON=Path(sys.executable)
+runner.SCRIPT=Path(sys.argv[2])
+# Match server.py --desktop: keep stdin open with an outstanding synchronous read.
+threading.Thread(target=lambda:sys.stdin.buffer.readline(),daemon=True).start()
+time.sleep(.2)
+try:
+    result=runner.analyze(Path(sys.argv[3]),Path(sys.argv[4]),{'duration':120},sys.argv[5])
+    assert result['notes']==[]
+    print('OWNER_PIPE_MODEL_STARTED',flush=True)
+except Exception:
+    os._exit(1)
+os._exit(0)
+''', encoding='utf-8')
+        child = subprocess.Popen([sys.executable, '-I', '-B', str(driver),
+                                  str(runner.ROOT / 'src'), str(probe), str(self.source),
+                                  str(self.work), self.sha], stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        try:
+            # Do not communicate()/close stdin here: that would release the owner read
+            # and accidentally hide the exact desktop-only deadlock being tested.
+            child.wait(timeout=12)
+            self.assertEqual(child.returncode, 0)
+            self.assertIn(b'OWNER_PIPE_MODEL_STARTED', child.stdout.read())
+        finally:
+            if child.poll() is None:
+                child.kill(); child.wait(timeout=5)
+            child.stdin.close(); child.stdout.close()
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

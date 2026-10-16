@@ -10,7 +10,10 @@ src/server.py          Loopback HTTP, Host/Origin/CSRF checks, bounded async wor
 src/process_lifetime.py Windows kill-on-close job for desktop backend descendants.
 src/bridge.py          QQ provider; metadata, account-authenticated search/source/lyrics.
 src/providers/qq/      Pinned SDK guard, DPAPI, cookie compatibility, verified MP3.
-src/providers/         Provider contract/registry; only QQ implemented/advertised.
+src/providers/         Registry + independent QQ and NetEase free-only adapters.
+src/providers/netease/ Narrow first-party normal search/detail/free MP3/lyric transport.
+src/source_migration.py Backed-up atomic legacy QQ -> source-qualified key migration.
+web/aggregation.mjs   Conservative display grouping, source selection, mixed queue rules.
 src/library.py         SQLite personal favorites/playlists/queue; not platform writes.
 src/listen_store.py    Listening semantics independent of provider favorites.
 src/analysis_runner.py Isolated, bounded model subprocess, config-selected runtime.
@@ -52,32 +55,79 @@ DPAPI credentials intentionally cannot travel to another user/device: reauthoriz
 Current platform support: Windows x64, Python 3.12, Node 22+. Other OS credential
 backends and packaged relocatable Python runtimes are future work, not guaranteed.
 
-More sources: necessary next steps, NOT shipped yet
---------------------------------------------------
-1. Introduce canonical source-qualified identity (e.g. qq:<mid>, netease:<id>) while
-   keeping a reversible migration/alias for existing QQ MID keys. All favorites,
-   playlist refs, queue/current state, listening history and insight caches migrate
-   transactionally, tested against a backup of a fixture DB, not the user's live DB.
-2. Separate public metadata from provider playback grants and internal identifiers;
-   never expose signed URLs/tokens or invent mappings between different recordings.
-3. Implement NetEase provider independently: own authorization expiry/refresh, exact
-   recording identity, search pagination, authorized source availability and lyrics.
-   Do not imply QQ membership transfers to NetEase or fall back to a cover/preview.
-4. Aggregate provider searches with partial-failure semantics and source badges.
-   A mixed queue resolves each row through its own provider, independently of UI view.
-5. Distinguish provider capabilities. Unsupported operations fail clearly, never
-   silently route a non-QQ key to QQ. ProviderRegistry.get already rejects unknown IDs.
-6. Design the small source/login UI increment with Kimi if/when UI changes are needed;
-   keep the existing minimalist player, do not add explanatory paragraphs to the page.
-7. Cross-device sync separately: derived personal records first, protected credentials
-   and copyrighted audio do not silently become synced assets.
-
-Before a release installer
+Dual-source implementation
 --------------------------
-Build a relocatable Python distribution rather than copying .venv (venvs contain
-machine references). Bundle pinned wheels and preserve all license notices. Keep
-user state outside app resources, add upgrade/rollback/backup tests, code signing
-and opt-in update policy. Do not describe the current source shell as an installer.
+Canonical identities are qq:<MID> and netease:<numeric song ID>. A bare legacy QQ
+MID is only an input alias, never a newly stored key. First startup takes a consistent
+SQLite backup before upgrading tracks, all foreign-key refs, queue/current state and
+insight JSON keys in one deferred-constraint transaction. Listening seconds, timestamps,
+playlist ordering and IDs are preserved. Conflicts/errors roll back instead of dropping
+data or starting an empty library. Migration and rollback are tested with legacy fixtures.
+Live validation uses a read-only clone, not the currently running user's DB.
+
+QQ's credential, transport, source resolution and validated cache code remain unchanged.
+The original qq network lock and account APIs remain compatible. NetEase has its own lock,
+cache and errors. QQ reauthorization revokes QQ media grants only and cannot clear a
+NetEase grant or stop an already playing NetEase stream.
+
+The new renderer requests source slices independently, renders each as it arrives,
+interleaves catalog ranks, preserves successful results/cursors through partial failure,
+and retries only the failed source. Source filtering never changes a stored recording.
+Grouping requires normalized title + complete artist set + album + duration within
+2 seconds, excluding version/cover/live/remix annotations. UI groups are transient:
+actual play/favorite/playlist/listening operations always use a concrete provider key.
+Source clicks select future actions, not immediate playback; no automatic fallback.
+
+NetEase uses normal first-party public free-source requests, not an identity claim or a
+fallback from a failed QQ session. It checks exact recording details and current source
+availability on every play, rejects trial/paid/protected/short sources, restricts verified
+HTTPS CDN hosts, and scans/fully decodes MP3 before issuing opaque loopback media tokens.
+Only the existing ordinary-MP3 validation functions are reused from QQ's local helper;
+no QQ network or credentials are involved in NetEase requests. No NetEase GUI/DLL/cache
+or upstream unblock package is used. Artwork uses bounded first-party proxy/cache routes.
+
+Listening records persist source separately; totals/rankings/history share source filters,
+and the UI's source share is based on listening time. Lyrics and analysis caches use the
+same source-qualified key. API capabilities declare NetEase free-only, not login.
+
+The renderer checks /api/features before enabling aggregation. If an older running backend
+serves new static files, it retains compatible QQ-only searches until deliberate restart;
+no automatic shutdown or live migration of that old process's database.
+
+Still pending
+-------------
+The user prioritizes non-VIP free playback. NetEase QR authorization, protected session
+persistence/refresh and member-full-source validation are deferred until actually needed;
+they are not the next milestone. No QQ membership transfer is assumed. More providers
+need their own adapters, credentials/capabilities and exact-source tests. Cross-device sync
+is separate: derived personal records first; credentials/audio are not silently synced.
+
+Windows private-test installer
+------------------------------
+NSIS x64 current-user installer now exists. Explicit positive source inventory,
+official relocatable embedded CPython and hash-locked backend wheels; not a copied
+venv. Packaged-only bootstrap resolves runtime files under resources and user state
+outside them. No account/music/database/cache from the build machine is shipped.
+Normal-close and owned-UI-crash lifecycle were tested from Chinese/space paths.
+Clean Windows VM, wizard/uninstall/upgrade/rollback, signing, dependency/security
+and public-license review remain release work; this is not a cleared public release.
+
+Optional score capability
+-------------------------
+src/score_extension.py mounts a same-origin capability with its own persistent data,
+one active worker/three waiting, cancel/retry, serialized immutable edit transactions,
+Windows owned Jobs and disabled/lazy startup. No torch is imported into the host.
+Host grants only library identities or bounded local uploads; authorized source is
+copied before inference, without play/state/history changes. The standalone demo
+remains independently runnable with a separate directory/lock.
+Native chooser verifies a separately relocatable model/runtime/piano capability pack.
+No generic renderer filesystem or shell API; no broad localhost/CORS allowlist.
+ABC pitch-only correction preserves every part/rhythm/tie; save emits a pinned
+revision's ABC/MusicXML/MIDI/FluidR3 media. Drafts cannot use stale playback/exports.
+Original inference stays untouched. See capabilities/score_lab/INTEGRATION.txt,
+EDITING.txt and PACK.txt. A general third-party plugin loader/QScore integration
+is deliberately not implemented. Future learning capabilities can use separate
+capability directories and narrowly scoped host grants.
 
 Transcription research
 ----------------------
